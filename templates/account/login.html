@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}تسجيل الدخول — منصة سهل سوفت{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <h1>تسجيل الدخول</h1>
+    <p class="muted">أدخل بريدك الإلكتروني وكلمة المرور للوصول إلى لوحة متاجرك.</p>
+
+    {# action/csrf/redirect_field are what allauth's LoginView expects on POST. #}
+    <form method="post" action="{% url 'account_login' %}">
+      {% csrf_token %}
+      {{ form }}
+      {{ redirect_field }}
+      <button type="submit" class="btn btn-block">دخول</button>
+    </form>
+
+    <p class="muted" style="margin-top:1.25rem;">
+      نسيت كلمة المرور؟ <a href="{% url 'account_reset_password' %}">إعادة تعيينها</a>
+    </p>
+    <p class="muted">
+      ليس لديك حساب؟ <a href="{% url 'account_signup' %}">أنشئ حساباً جديداً</a>
+    </p>
+  </div>
+{% endblock %}

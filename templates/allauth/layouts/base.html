@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{# allauth ships its own bare <html> with no lang/dir, so every page we never
+   wrote a template for -- password reset, email confirmation, logout -- came
+   out left-to-right and unstyled next to the rest of the UI. Re-pointing
+   allauth's own layout at the project shell fixes all of them at once, and
+   keeps fixing the ones we have not met yet.
+
+   The nested head_title lets each allauth page keep its own heading while the
+   suffix stays ours. Content needs no mapping: allauth's pages fill a block
+   called "content", which is exactly what base.html already exposes. #}
+
+{% block title %}{% block head_title %}{% endblock head_title %} — منصة سهل سوفت{% endblock %}
+
+{% block main_class %}auth-page{% endblock %}

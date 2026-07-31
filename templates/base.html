@@ -1,0 +1,234 @@
+{% load i18n %}<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}منصة سهل سوفت{% endblock %}</title>
+  {# No CDNs: the VPS may be firewalled, and a half-loaded stylesheet is worse than none. #}
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --border: #dde3ea;
+      --text: #1c2530;
+      --muted: #667487;
+      --accent: #1f6f8b;
+      --accent-dark: #17566c;
+      --ok-bg: #e3f5ea;
+      --ok-text: #1d6b3f;
+      --off-bg: #fbe6e6;
+      --off-text: #93342f;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-text-size-adjust: 100%;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1, h2, h3 { line-height: 1.35; margin: 0 0 .5rem; font-weight: 600; }
+    h1 { font-size: 1.55rem; }
+    h2 { font-size: 1.2rem; }
+    p { margin: 0 0 1rem; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 0 1.25rem; }
+
+    .site-header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-inner {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .75rem 1rem;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 62px;
+      padding-block: .6rem;
+    }
+    .brand {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .brand:hover { text-decoration: none; color: var(--accent); }
+    .user-box { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+    .user-email { color: var(--muted); font-size: .9rem; }
+
+    main.wrap { padding-block: 2rem 3rem; }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+    }
+    .auth-card { max-width: 420px; margin-inline: auto; }
+
+    .btn {
+      display: inline-block;
+      font: inherit;
+      font-weight: 600;
+      padding: .5rem 1.1rem;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn:hover { background: var(--accent-dark); text-decoration: none; }
+    .btn-ghost {
+      background: transparent;
+      color: var(--muted);
+      border-color: var(--border);
+    }
+    .btn-ghost:hover { background: var(--bg); color: var(--text); }
+    .btn-block { width: 100%; }
+
+    form p, form div { margin: 0 0 1rem; }
+    label { display: block; font-size: .9rem; font-weight: 600; margin-bottom: .3rem; }
+    input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="tel"] {
+      width: 100%;
+      font: inherit;
+      padding: .55rem .7rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+    }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
+    input[type="checkbox"] { margin-inline-end: .4rem; }
+    .helptext, .helptext ul { color: var(--muted); font-size: .82rem; }
+    ul.errorlist {
+      list-style: none;
+      margin: 0 0 .6rem;
+      padding: .5rem .8rem;
+      border-radius: var(--radius);
+      background: var(--off-bg);
+      color: var(--off-text);
+      font-size: .88rem;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: start; padding: .7rem .8rem; border-bottom: 1px solid var(--border); }
+    thead th { font-size: .85rem; color: var(--muted); text-transform: none; }
+    tbody tr:last-child td { border-bottom: none; }
+
+    .badge {
+      display: inline-block;
+      font-size: .8rem;
+      font-weight: 600;
+      padding: .15rem .6rem;
+      border-radius: 999px;
+    }
+    .badge-ok { background: var(--ok-bg); color: var(--ok-text); }
+    .badge-off { background: var(--off-bg); color: var(--off-text); }
+
+    .messages { list-style: none; margin: 0 0 1.5rem; padding: 0; }
+    .messages li {
+      padding: .6rem 1rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      margin-bottom: .5rem;
+    }
+    .muted { color: var(--muted); font-size: .92rem; }
+    .empty { text-align: center; padding-block: 1rem; }
+
+    @media (max-width: 560px) {
+      .table-scroll { overflow-x: auto; }
+    }
+
+    /* ---- agent enrollments (dashboard) ---- */
+    .shop-card { margin-bottom: 1.25rem; }
+    .shop-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem 1rem;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 1.25rem;
+    }
+    .shop-card h3 { font-size: 1rem; color: var(--muted); margin-bottom: .6rem; }
+    .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+    .actions form { margin: 0; }
+    .btn-small { padding: .25rem .7rem; font-size: .85rem; }
+    .badge-wait { background: #fdf1dc; color: #8a5b12; }
+    .new-agent { margin: 1.25rem 0 0; }
+    .new-agent .actions input[type="text"] { flex: 1 1 15rem; width: auto; }
+
+    /* The one-time token is loud on purpose: nothing can bring it back. */
+    .token-panel { border-color: var(--accent); margin-bottom: 1.5rem; }
+    .token-box {
+      margin: 0 0 1rem;
+      padding: .8rem 1rem;
+      background: var(--bg);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      font-family: Consolas, "Courier New", monospace;
+      font-size: .95rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: all;
+    }
+
+    /* allauth's own pages render straight into <main> with no markup of ours
+       to hang a card on, so the card is the main element itself. */
+    main.auth-page {
+      max-width: 480px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-block: 2rem 3rem;
+    }
+    main.auth-page h1 { font-size: 1.35rem; }
+    main.auth-page button, main.auth-page input[type="submit"] {
+      font: inherit;
+      font-weight: 600;
+      padding: .5rem 1.1rem;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    main.auth-page button:hover, main.auth-page input[type="submit"]:hover {
+      background: var(--accent-dark);
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="wrap header-inner">
+      <a class="brand" href="{% url 'home' %}">منصة سهل سوفت</a>
+      {% if user.is_authenticated %}
+        <div class="user-box">
+          <span class="user-email">{{ user.email }}</span>
+          {# ACCOUNT_LOGOUT_ON_GET is False, so logging out must be a POST. #}
+          <form method="post" action="{% url 'account_logout' %}">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-ghost">تسجيل الخروج</button>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="wrap {% block main_class %}{% endblock %}">
+    {% if messages %}
+      <ul class="messages">
+        {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  {% block extra_body %}{% endblock %}
+</body>
+</html>

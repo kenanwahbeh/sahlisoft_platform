@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+
+{% block title %}المتاجر — منصة سهل سوفت{% endblock %}
+
+{% block content %}
+  <h1>متاجري</h1>
+
+  {% if issued %}
+    {# Rendered straight into the POST response: this is the only time the
+       plaintext token exists anywhere, including on our side. #}
+    <div class="card token-panel">
+      <h2>رمز الربط الجديد — انسخه الآن</h2>
+      <p class="muted">
+        هذا الرمز خاص بالمتجر <strong>{{ issued.tenant.name }}</strong>،
+        وهو يظهر <strong>مرة واحدة فقط</strong>. المنصة لا تحتفظ بنسخة منه،
+        فإن أغلقت هذه الصفحة قبل نسخه فلن تتمكن من استرجاعه، وسيلزمك إنشاء رمز جديد.
+      </p>
+      <pre class="token-box" dir="ltr">{{ issued.token }}</pre>
+      <div class="actions">
+        <form method="post" action="{% url 'enrollment_config' issued.tenant.slug issued.enrollment.pk %}">
+          {% csrf_token %}
+          <input type="hidden" name="token" value="{{ issued.token }}">
+          <button type="submit" class="btn">تنزيل ملف الإعداد (.env)</button>
+        </form>
+        <a class="btn btn-ghost" href="{% url 'dashboard' %}">تم، أخفِ الرمز</a>
+      </div>
+      <p class="muted" style="margin-bottom:0;">
+        احفظ ملف الإعداد بجانب برنامج العميل على جهاز نقطة البيع.
+        بعد تشغيله سيظهر العميل هنا بحالة «بانتظار الموافقة»، ولن يُرسل أي بيانات
+        قبل أن تعتمده يدوياً من هذه الصفحة.
+      </p>
+    </div>
+  {% endif %}
+
+  {% if shops %}
+    <p class="muted">هذه هي المتاجر المصرّح لك بالاطّلاع على بياناتها.</p>
+
+    {% for shop in shops %}
+      <section class="card shop-card">
+        <div class="shop-head">
+          <div>
+            <h2>{{ shop.tenant.name }}</h2>
+            <p class="muted" style="margin:0;">
+              العنوان: <a href="{{ shop.url }}" dir="ltr">{{ shop.host }}</a>
+              · دورك: {{ shop.role }}
+            </p>
+          </div>
+          {% if shop.tenant.is_active %}
+            <span class="badge badge-ok">نشط</span>
+          {% else %}
+            <span class="badge badge-off">موقوف</span>
+          {% endif %}
+        </div>
+
+        <h3>عملاء الربط (الأجهزة المتصلة)</h3>
+        {% if shop.agents %}
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>الجهاز</th>
+                  <th>الرمز</th>
+                  <th>الحالة</th>
+                  <th>آخر اتصال</th>
+                  <th>تاريخ الإنشاء</th>
+                  {% if shop.can_manage %}<th>إجراءات</th>{% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for agent in shop.agents %}
+                  <tr>
+                    <td>{{ agent.obj.label|default:"— بلا اسم —" }}</td>
+                    <td dir="ltr">{{ agent.obj.masked_token }}</td>
+                    <td>
+                      {% if agent.obj.status == "active" %}
+                        <span class="badge badge-ok">{{ agent.status_label }}</span>
+                      {% elif agent.obj.status == "pending" %}
+                        <span class="badge badge-wait">{{ agent.status_label }}</span>
+                      {% else %}
+                        <span class="badge badge-off">{{ agent.status_label }}</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if agent.obj.last_seen_at %}
+                        {{ agent.obj.last_seen_at|date:"Y-m-d H:i" }}
+                      {% else %}
+                        <span class="muted">لم يتصل بعد</span>
+                      {% endif %}
+                    </td>
+                    <td>{{ agent.obj.created_at|date:"Y-m-d" }}</td>
+                    {% if shop.can_manage %}
+                      <td>
+                        <div class="actions">
+                          {% if agent.obj.status == "pending" %}
+                            <form method="post" action="{% url 'enrollment_approve' shop.tenant.slug agent.obj.pk %}">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-small">اعتماد</button>
+                            </form>
+                          {% endif %}
+                          {% if agent.obj.status != "revoked" %}
+                            <form method="post" action="{% url 'enrollment_revoke' shop.tenant.slug agent.obj.pk %}">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-small btn-ghost">إلغاء</button>
+                            </form>
+                          {% endif %}
+                          {# Same file, minus the secret: the token is gone. #}
+                          <form method="post" action="{% url 'enrollment_config' shop.tenant.slug agent.obj.pk %}">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-small btn-ghost">ملف الإعداد</button>
+                          </form>
+                        </div>
+                      </td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="muted">لا يوجد أي عميل مرتبط بهذا المتجر بعد.</p>
+        {% endif %}
+
+        {% if shop.can_manage %}
+          <form method="post" action="{% url 'enrollment_create' shop.tenant.slug %}" class="new-agent">
+            {% csrf_token %}
+            <label for="label-{{ shop.tenant.slug }}">اسم الجهاز (اختياري)</label>
+            <div class="actions">
+              <input type="text" id="label-{{ shop.tenant.slug }}" name="label"
+                     maxlength="120" placeholder="مثال: جهاز الكاشير الرئيسي">
+              <button type="submit" class="btn">إنشاء رمز ربط جديد</button>
+            </div>
+          </form>
+        {% endif %}
+      </section>
+    {% endfor %}
+  {% else %}
+    <div class="card empty">
+      <h2>لا يوجد متجر مرتبط بحسابك بعد</h2>
+      <p class="muted">
+        حسابك <strong>{{ user.email }}</strong> غير مرتبط حالياً بأي متجر، لذلك لا توجد بيانات لعرضها.
+        يرجى التواصل مع مسؤول المنصة لربط حسابك بمتجرك، وستظهر بياناته هنا فور اكتمال الربط.
+      </p>
+    </div>
+  {% endif %}
+{% endblock %}

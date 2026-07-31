@@ -1,0 +1,30 @@
+from django.urls import path
+
+from . import views
+
+# The slug in the path is a claim, not a credential: every one of these views
+# resolves it through the acting user's Membership before doing anything.
+urlpatterns = [
+    path("", views.home, name="home"),
+    path("dashboard/", views.dashboard, name="dashboard"),
+    path(
+        "shops/<slug:slug>/agents/new/",
+        views.enrollment_create,
+        name="enrollment_create",
+    ),
+    path(
+        "shops/<slug:slug>/agents/<int:pk>/approve/",
+        views.enrollment_approve,
+        name="enrollment_approve",
+    ),
+    path(
+        "shops/<slug:slug>/agents/<int:pk>/revoke/",
+        views.enrollment_revoke,
+        name="enrollment_revoke",
+    ),
+    path(
+        "shops/<slug:slug>/agents/<int:pk>/config/",
+        views.enrollment_config,
+        name="enrollment_config",
+    ),
+]

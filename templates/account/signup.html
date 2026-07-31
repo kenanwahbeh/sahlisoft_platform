@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+
+{% block title %}إنشاء حساب — منصة سهل سوفت{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <h1>إنشاء حساب جديد</h1>
+    <p class="muted">سجّل بريدك الإلكتروني، ثم يقوم مسؤول المنصة بربط حسابك بمتجرك.</p>
+
+    {# action/csrf/redirect_field are what allauth's SignupView expects on POST. #}
+    <form method="post" action="{% url 'account_signup' %}">
+      {% csrf_token %}
+      {{ form }}
+      {{ redirect_field }}
+      <button type="submit" class="btn btn-block">إنشاء الحساب</button>
+    </form>
+
+    <p class="muted" style="margin-top:1.25rem;">
+      لديك حساب بالفعل؟ <a href="{% url 'account_login' %}">سجّل الدخول</a>
+    </p>
+  </div>
+{% endblock %}
