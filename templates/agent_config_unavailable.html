@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{# Reached when a config download arrives without the one-time token: the
+   platform never kept a copy, so there is no file to send. Answering with a
+   half-empty .env is what put two look-alike files in the owner's Downloads
+   folder, so this page answers instead -- and puts the fix one click away. #}
+
+{% block title %}رمز الربط غير متوفر — منصة سهل سوفت{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <h1>لا يمكن إعادة تنزيل هذا الملف</h1>
+
+    <p class="muted">
+      ملف الإعداد الخاص بالجهاز
+      <strong>{{ enrollment.label|default:"— بلا اسم —" }}</strong>
+      (رقم {{ enrollment.pk }}) في متجر <strong>{{ tenant.name }}</strong>
+      يحتوي على رمز ربط سري.
+      <strong>هذا الرمز يظهر مرة واحدة فقط لحظة إنشائه</strong>، والمنصة لا تحتفظ
+      بنسخة منه إطلاقاً — وهذا مقصود، فحتى لو اطّلع أحد على قاعدة بيانات المنصة
+      فلن يجد رمز متجرك فيها.
+    </p>
+    <p class="muted">
+      لذلك لا يمكننا إرسال الملف من جديد. الحل بسيط: أنشئ رمز ربط جديداً لهذا المتجر
+      الآن، وسيظهر لك مرة واحدة مع ملف إعداده الكامل. الجهاز القديم
+      (حالته: {{ status_label }}) يبقى كما هو، ويمكنك إلغاؤه من لوحة التحكم متى شئت.
+    </p>
+
+    {% if not agent_released %}
+      <div class="support-note">
+        <p class="support-note-title">تنبيه: برنامج الوكيل لم يصدر بعد</p>
+        <p>
+          برنامج الوكيل الذي يُثبَّت على جهاز المتجر ما زال قيد التجهيز ولم يُتَح
+          للتنزيل بعد، لذلك لا يمكن استخدام أي رمز ربط حالياً. يمكنك تجهيز الرمز من
+          الآن، وستتمكّن من تنزيل البرنامج من هذه الصفحة نفسها فور صدوره.
+        </p>
+      </div>
+    {% endif %}
+
+    {# The label rides along so the replacement carries the same device name. #}
+    <form method="post" action="{% url 'enrollment_create' tenant.slug %}" style="margin-top:1.5rem;">
+      {% csrf_token %}
+      <input type="hidden" name="label" value="{{ enrollment.label }}">
+      <button type="submit" class="btn btn-block">أنشئ رمز ربط جديداً لهذا المتجر</button>
+    </form>
+
+    <p class="muted" style="margin-top:1.25rem; margin-bottom:0;">
+      <a href="{% url 'dashboard' %}">العودة إلى لوحة التحكم</a>
+      · للمساعدة راسلنا على
+      <a href="mailto:{{ support_email }}" dir="ltr">{{ support_email }}</a>
+    </p>
+  </div>
+{% endblock %}

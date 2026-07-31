@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+
+{# The platform's public front page. Anonymous visitors on app.<domain> land
+   here; a shop's own subdomain never renders it (see accounts.views.home).
+
+   Every pixel is local on purpose: no font, icon set or script is fetched from
+   a third party, so the page renders identically on a throttled Syrian mobile
+   connection and cannot be broken by someone else's outage. Icons are inline
+   SVG, the "diagram" is plain markup, and there is nothing to wait for. #}
+
+{% block title %}منصة سهل سوفت — تقارير متجرك من أي مكان{% endblock %}
+
+{% block main_class %}landing{% endblock %}
+
+{% block header_nav %}
+  <nav class="header-nav">
+    <a href="{% url 'account_login' %}">تسجيل الدخول</a>
+    <a class="btn btn-small" href="{% url 'account_signup' %}">ابدأ مجاناً</a>
+  </nav>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  main.landing { max-width: none; padding: 0; }
+  .landing .band { padding-block: 3.5rem; }
+  .landing .inner { max-width: 1040px; margin-inline: auto; padding-inline: 1.25rem; }
+  .landing .messages { max-width: 1040px; margin-inline: auto; padding: 1.25rem 1.25rem 0; }
+
+  .header-nav { display: flex; align-items: center; gap: 1.25rem; }
+  .header-nav a { font-weight: 600; }
+  .header-nav .btn { color: #fff; }
+  .header-nav .btn:hover { color: #fff; }
+
+  /* ---------------------------------------------------------- hero ---- */
+  .landing .hero {
+    background:
+      radial-gradient(60rem 30rem at 85% -10%, rgba(31,111,139,.20), transparent 60%),
+      linear-gradient(160deg, #10222c 0%, #17404f 55%, #1f6f8b 130%);
+    color: #eaf2f5;
+    padding-block: 4.5rem 4rem;
+  }
+  .landing .hero .inner {
+    display: grid;
+    grid-template-columns: 1.15fr .85fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  .landing .eyebrow {
+    display: inline-block;
+    font-size: .82rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    padding: .25rem .8rem;
+    border-radius: 999px;
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.18);
+    margin-bottom: 1.1rem;
+  }
+  .landing .hero h1 {
+    font-size: clamp(1.9rem, 4.2vw, 2.9rem);
+    line-height: 1.25;
+    color: #fff;
+    margin-bottom: 1rem;
+  }
+  .landing .hero h1 em { font-style: normal; color: #7fd3e8; }
+  .landing .hero .lead {
+    font-size: 1.1rem;
+    color: rgba(234,242,245,.86);
+    max-width: 34rem;
+  }
+  .landing .cta-row { display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.75rem; }
+  .landing .btn-lg { padding: .7rem 1.6rem; font-size: 1.02rem; }
+  .landing .btn-invert { background: #fff; color: #10222c; }
+  .landing .btn-invert:hover { background: #dceaf0; color: #10222c; }
+  .landing .btn-outline {
+    background: transparent;
+    color: #fff;
+    border-color: rgba(255,255,255,.45);
+  }
+  .landing .btn-outline:hover { background: rgba(255,255,255,.12); color: #fff; }
+  .landing .hero-note {
+    margin-top: 1.2rem;
+    font-size: .88rem;
+    color: rgba(234,242,245,.62);
+  }
+
+  /* A shop machine, the link, and the browser -- as markup, not an image. */
+  .flow { display: grid; gap: .55rem; }
+  .flow-node {
+    background: rgba(255,255,255,.07);
+    border: 1px solid rgba(255,255,255,.16);
+    border-radius: 12px;
+    padding: .85rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+  }
+  .flow-node svg { flex: none; width: 26px; height: 26px; stroke: #7fd3e8; }
+  .flow-node b { display: block; color: #fff; font-size: .95rem; }
+  .flow-node span { font-size: .82rem; color: rgba(234,242,245,.7); }
+  .flow-link {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding-inline-start: 1.6rem;
+    font-size: .78rem;
+    color: rgba(234,242,245,.6);
+  }
+  .flow-link::before {
+    content: "";
+    width: 2px;
+    height: 22px;
+    background: linear-gradient(180deg, rgba(127,211,232,.7), rgba(127,211,232,.15));
+  }
+
+  /* --------------------------------------------------------- steps ---- */
+  .landing .band-title { text-align: center; margin-bottom: 2.5rem; }
+  .landing .band-title h2 { font-size: 1.6rem; }
+  .landing .band-title p { color: var(--muted); max-width: 38rem; margin-inline: auto; }
+
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; counter-reset: step; }
+  .step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.4rem;
+  }
+  .step::before {
+    counter-increment: step;
+    content: counter(step);
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 700;
+    margin-bottom: .9rem;
+  }
+  .step h3 { font-size: 1.05rem; }
+  .step p { color: var(--muted); font-size: .94rem; margin: 0; }
+
+  /* ------------------------------------------------------ features ---- */
+  .landing .band-alt { background: var(--surface); border-block: 1px solid var(--border); }
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.25rem; }
+  .feature { display: flex; gap: .9rem; }
+  .feature svg { flex: none; width: 26px; height: 26px; stroke: var(--accent); margin-top: .2rem; }
+  .feature h3 { font-size: 1rem; margin-bottom: .25rem; }
+  .feature p { color: var(--muted); font-size: .92rem; margin: 0; }
+
+  /* ------------------------------------------------------ security ---- */
+  .safety {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 1.25rem;
+    align-items: start;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-inline-start: 4px solid var(--accent);
+    border-radius: var(--radius);
+    padding: 1.6rem;
+  }
+  .safety svg { width: 34px; height: 34px; stroke: var(--accent); }
+  .safety ul { margin: .75rem 0 0; padding-inline-start: 1.1rem; color: var(--muted); font-size: .95rem; }
+  .safety li { margin-bottom: .3rem; }
+
+  /* ---------------------------------------------------------- foot ---- */
+  .landing .closer { background: #10222c; color: #eaf2f5; text-align: center; }
+  .landing .closer h2 { color: #fff; font-size: 1.7rem; }
+  .landing .closer p { color: rgba(234,242,245,.75); max-width: 34rem; margin-inline: auto; }
+  .landing .closer .cta-row { justify-content: center; }
+
+  .landing .site-foot {
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding-block: 2rem;
+    font-size: .9rem;
+    color: var(--muted);
+  }
+  .landing .site-foot .inner {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem 1.5rem;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  @media (max-width: 860px) {
+    .landing .hero .inner { grid-template-columns: 1fr; gap: 2.25rem; }
+    .steps, .features { grid-template-columns: 1fr; }
+    .safety { grid-template-columns: 1fr; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<section class="band hero">
+  <div class="inner">
+    <div>
+      <span class="eyebrow">لأصحاب المتاجر الذين يستخدمون برنامج سهل سوفت</span>
+      <h1>بيانات متجرك أمامك <em>من أي مكان</em>، دون تغيير برنامجك.</h1>
+      <p class="lead">
+        برنامج سهل سوفت يعمل على جهاز المتجر ويبقى كما هو. نُثبّت عميلاً صغيراً على
+        الجهاز نفسه يقرأ قاعدة البيانات محلياً — <strong>قراءة فقط</strong> — ويرفع
+        الملخّصات إلى لوحة تحكم عربية تفتحها من هاتفك أو من أي متصفح.
+      </p>
+      <div class="cta-row">
+        <a class="btn btn-lg btn-invert" href="{% url 'account_signup' %}">أنشئ حسابك الآن</a>
+        <a class="btn btn-lg btn-outline" href="{% url 'account_login' %}">لدي حساب — تسجيل الدخول</a>
+      </div>
+      <p class="hero-note">
+        لكل متجر نطاقه الفرعي الخاص · لا يُرسل العميل أي بيانات قبل موافقتك اليدوية
+      </p>
+    </div>
+
+    <div class="flow" aria-hidden="true">
+      <div class="flow-node">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/>
+        </svg>
+        <div>
+          <b>جهاز المتجر</b>
+          <span>سهل سوفت + قاعدة بيانات Firebird</span>
+        </div>
+      </div>
+      <div class="flow-link">قراءة محلية فقط، عبر اتصال مُعمّى</div>
+      <div class="flow-node">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M17.5 19a4.5 4.5 0 0 0 .5-8.97A6 6 0 0 0 6.1 10.5 4 4 0 0 0 6.5 19z"/>
+        </svg>
+        <div>
+          <b>منصة سهل سوفت</b>
+          <span>تخزين معزول لكل متجر على حدة</span>
+        </div>
+      </div>
+      <div class="flow-link">تفتحها بحسابك من أي مكان</div>
+      <div class="flow-node">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 13h6M7 16h9"/>
+        </svg>
+        <div>
+          <b>لوحة التحكم</b>
+          <span>متجرك.bytebalancetech.com</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="inner">
+    <div class="band-title">
+      <h2>ثلاث خطوات، وينتهي الإعداد</h2>
+      <p>لا تحتاج إلى خادم ولا إلى عنوان IP ثابت ولا إلى أي تعديل على برنامجك الحالي.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <h3>أنشئ حسابك ومتجرك</h3>
+        <p>
+          سجّل ببريدك الإلكتروني، ثم أنشئ متجرك من لوحة التحكم واختر له نطاقه الفرعي.
+          يصبح جاهزاً خلال ثوانٍ.
+        </p>
+      </div>
+      <div class="step">
+        <h3>ثبّت برنامج الوكيل على جهاز المتجر</h3>
+        <p>
+          نزّل برنامج الوكيل وملف الإعداد من لوحة التحكم وشغّلهما على جهاز نقطة البيع.
+          يتصل الجهاز بالمنصة ويظهر لديك بحالة «بانتظار الموافقة».
+        </p>
+      </div>
+      <div class="step">
+        <h3>اعتمد الجهاز وتابع</h3>
+        <p>
+          بضغطة واحدة تعتمد الجهاز فيبدأ بإرسال البيانات. بعدها تفتح لوحة المتجر من
+          أي متصفح وتتابع مبيعاتك ومخزونك وحساباتك.
+        </p>
+      </div>
+    </div>
+
+    {% comment %}
+      Honesty over polish: the agent is not shipping yet, and a landing page
+      that implies otherwise turns a first impression into a complaint.
+      (Block comment rather than the hash form: Django's comment regex is not
+      DOTALL, so a multi-line hash comment inside a block renders as page text.)
+    {% endcomment %}
+    <div class="support-note" style="max-width:44rem; margin-inline:auto;">
+      <p class="support-note-title">أين وصلنا الآن</p>
+      <p>
+        برنامج الوكيل ما زال قيد التجهيز ولم يُتَح للتنزيل بعد. يمكنك من الآن إنشاء
+        حسابك ومتجرك وتجهيز رمز الربط، وسنُتيح البرنامج للتنزيل من لوحة التحكم فور
+        صدوره فيعمل ما جهّزته مباشرةً.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="band band-alt">
+  <div class="inner">
+    <div class="band-title">
+      <h2>لماذا هذه المنصة</h2>
+      <p>بُنيت حول برنامج سهل سوفت تحديداً، وحول الطريقة التي تعمل بها المتاجر فعلاً.</p>
+    </div>
+    <div class="features">
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3l8 3v6c0 4.4-3.2 7.9-8 9-4.8-1.1-8-4.6-8-9V6z"/><path d="M9 12l2 2 4-4"/>
+        </svg>
+        <div>
+          <h3>قراءة فقط، بلا استثناء</h3>
+          <p>العميل لا يكتب حرفاً واحداً في قاعدة بياناتك ولا يعدّل شيئاً في برنامجك.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/>
+        </svg>
+        <div>
+          <h3>نطاق فرعي خاص بمتجرك</h3>
+          <p>عنوان مستقل لكل متجر، وبياناته معزولة تماماً عن أي متجر آخر على المنصة.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19V5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v6h6"/>
+        </svg>
+        <div>
+          <h3>عربية بالكامل</h3>
+          <p>واجهة من اليمين إلى اليسار، وأسماء المواد والحسابات كما هي في برنامجك.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+        </svg>
+        <div>
+          <h3>مبيعاتك ومخزونك وحساباتك</h3>
+          <p>الفواتير والأرصدة والتكاليف كما يحسبها سهل سوفت، دون إدخال مزدوج.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+        </svg>
+        <div>
+          <h3>ربط بموافقة بشرية</h3>
+          <p>الرمز وحده لا يكفي: لا يبدأ أي جهاز بالإرسال قبل أن تعتمده أنت يدوياً.</p>
+        </div>
+      </div>
+      <div class="feature">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>
+        </svg>
+        <div>
+          <h3>من الهاتف كما من المكتب</h3>
+          <p>لا تطبيق لتثبيته ولا تحديثات: متصفح واحد يكفي، على أي جهاز.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="inner">
+    <div class="safety">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3l8 3v6c0 4.4-3.2 7.9-8 9-4.8-1.1-8-4.6-8-9V6z"/>
+      </svg>
+      <div>
+        <h2>بياناتك تبقى بياناتك</h2>
+        <p class="muted" style="margin:0;">
+          صُمّمت المنصة بحيث تكون قدرتها على إيذاء متجرك معدومة، لا مجرد غير مُستخدمة:
+        </p>
+        <ul>
+          <li>العميل يفتح قاعدة البيانات للقراءة فقط، ولا يملك أي مسار للكتابة فيها.</li>
+          <li>قاعدة بياناتك الأصلية تبقى على جهازك، ولا تغادره نسخة منها.</li>
+          <li>رمز ربط كل جهاز يظهر مرة واحدة، والمنصة نفسها لا تحتفظ بنسخة منه.</li>
+          <li>يمكنك إلغاء أي جهاز في أي لحظة، فيتوقف عن الإرسال فوراً.</li>
+          <li>لا يرى أي مستخدم متجراً لم تمنحه صلاحية عليه صراحةً.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="band closer">
+  <div class="inner">
+    <h2>ابدأ اليوم — الإعداد يستغرق دقائق</h2>
+    <p>
+      أنشئ حسابك، افتح متجرك على المنصة، ثم ثبّت العميل على جهاز نقطة البيع.
+      لا عقود ولا تجهيزات خاصة.
+    </p>
+    <div class="cta-row">
+      <a class="btn btn-lg btn-invert" href="{% url 'account_signup' %}">إنشاء حساب جديد</a>
+      <a class="btn btn-lg btn-outline" href="mailto:info@bytebalancetech.com">تحدّث إلينا أولاً</a>
+    </div>
+  </div>
+</section>
+
+<footer class="site-foot">
+  <div class="inner">
+    <span>منصة سهل سوفت — ByteBalance Tech</span>
+    <span>
+      للاستفسار والدعم:
+      <a href="mailto:info@bytebalancetech.com" dir="ltr">info@bytebalancetech.com</a>
+    </span>
+  </div>
+</footer>
+{% endblock %}

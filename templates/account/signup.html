@@ -5,7 +5,10 @@
 {% block content %}
   <div class="card auth-card">
     <h1>إنشاء حساب جديد</h1>
-    <p class="muted">سجّل بريدك الإلكتروني، ثم يقوم مسؤول المنصة بربط حسابك بمتجرك.</p>
+    <p class="muted">
+      سجّل بريدك الإلكتروني، وسنرسل إليك رسالة لتفعيل الحساب.
+      بعد الدخول تنشئ متجرك بنفسك من لوحة التحكم خلال ثوانٍ.
+    </p>
 
     {# action/csrf/redirect_field are what allauth's SignupView expects on POST. #}
     <form method="post" action="{% url 'account_signup' %}">
@@ -17,6 +20,10 @@
 
     <p class="muted" style="margin-top:1.25rem;">
       لديك حساب بالفعل؟ <a href="{% url 'account_login' %}">سجّل الدخول</a>
+    </p>
+    <p class="muted" style="margin-bottom:0;">
+      لم تصلك رسالة التفعيل؟ تحقّق من مجلد البريد المزعج، ثم راسلنا على
+      <a href="mailto:info@bytebalancetech.com" dir="ltr">info@bytebalancetech.com</a>.
     </p>
   </div>
 {% endblock %}

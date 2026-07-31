@@ -7,14 +7,23 @@ identifier and then looks it up: they all start from the acting user's
 memberships and refuse to arrive anywhere the user was not already entitled to.
 """
 
+import logging
+import re
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import IntegrityError, transaction
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
-from .models import AgentEnrollment, Membership
+from .forms import ShopCreateForm
+from .models import AgentEnrollment, Membership, Tenant
+from .signals import unique_slug
+
+logger = logging.getLogger(__name__)
 
 # The model's choice labels are English source strings and the project ships
 # no Arabic .po yet, so the UI wording lives here instead of in the model.
@@ -34,6 +43,20 @@ STATUS_LABELS_AR = {
 # viewers can see that an agent exists; they cannot mint one that streams the
 # shop's books to a machine of their choosing.
 MANAGING_ROLES = {Membership.Role.OWNER}
+
+# A slug is a public hostname, so minting one is not a free action. The ceiling
+# is not a business rule about how many shops a merchant may run -- support can
+# lift it from the admin -- it is here so a loose script holding one session
+# cookie cannot walk off with an unbounded run of subdomains.
+MAX_OWNED_SHOPS = 5
+
+SUPPORT_EMAIL = "info@bytebalancetech.com"
+
+# The on-premise agent is not built yet. Enrollment is deliberately still open
+# -- the tokens and the approval step are the parts that have to be right, and
+# an owner may as well prepare the pairing now -- but every surface that hands
+# out a token has to say so, or the UI promises a download that does not exist.
+AGENT_RELEASED = False
 
 
 def tenant_host(tenant) -> str:
@@ -116,9 +139,104 @@ def _shop_rows(user):
     return rows
 
 
+def _owned_shop_count(user) -> int:
+    return Membership.objects.filter(user=user, role=Membership.Role.OWNER).count()
+
+
+def _dashboard_context(user, shop_form=None, **extra):
+    """Everything dashboard.html needs, from whichever view renders it.
+
+    Three views render that template and only one of them is the dashboard, so
+    the empty state's shop form has to be built here or it quietly vanishes
+    from the other two.
+    """
+    context = {
+        "shops": _shop_rows(user),
+        "shop_form": shop_form if shop_form is not None else ShopCreateForm(user=user),
+        "platform_domain": settings.PLATFORM_DOMAIN,
+        "support_email": SUPPORT_EMAIL,
+        "agent_released": AGENT_RELEASED,
+    }
+    context.update(extra)
+    return context
+
+
 @login_required
 def dashboard(request):
-    return render(request, "dashboard.html", {"shops": _shop_rows(request.user)})
+    return render(request, "dashboard.html", _dashboard_context(request.user))
+
+
+def _slug_source(desired: str, name: str, user) -> str:
+    """What to hand ``unique_slug``.
+
+    An all-Arabic shop name slugifies to the empty string, and every such shop
+    would otherwise land on the same "shop-N" run. Falling back to the email
+    local part gives those owners a label that at least means something, which
+    is exactly what signals.py does for a brand new signup.
+    """
+    source = desired or name
+    if slugify(source).strip("-"):
+        return source
+    return (user.email or "").partition("@")[0]
+
+
+@login_required
+@require_POST
+def shop_create(request):
+    """Let an owner open their own shop instead of waiting on an operator.
+
+    POST-only: this allocates a live public subdomain, which is not something a
+    GET may ever do. On failure the dashboard is re-rendered with the bound form
+    rather than redirected to, so the typed values and the Arabic errors survive.
+
+    ``unique_slug`` only reads, so the UNIQUE index is what actually decides;
+    two owners racing on the same label both pass the check and one loses. Same
+    retry as the signup path, for the same reason.
+    """
+    if _owned_shop_count(request.user) >= MAX_OWNED_SHOPS:
+        messages.error(
+            request,
+            f"لا يمكن لحساب واحد إنشاء أكثر من {MAX_OWNED_SHOPS} متاجر. "
+            f"إن كنت بحاجة إلى المزيد راسلنا على {SUPPORT_EMAIL}.",
+        )
+        return redirect("dashboard")
+
+    form = ShopCreateForm(request.POST, user=request.user)
+    if not form.is_valid():
+        return render(
+            request,
+            "dashboard.html",
+            _dashboard_context(request.user, shop_form=form),
+            status=400,
+        )
+
+    name = form.cleaned_data["name"]
+    source = _slug_source(form.cleaned_data["subdomain"], name, request.user)
+
+    for _attempt in range(5):
+        try:
+            with transaction.atomic():
+                tenant = Tenant.objects.create(name=name, slug=unique_slug(source))
+                Membership.objects.create(
+                    user=request.user, tenant=tenant, role=Membership.Role.OWNER
+                )
+        except IntegrityError:
+            continue
+
+        messages.success(
+            request,
+            f"تم إنشاء متجر «{tenant.name}» بنجاح. "
+            f"عنوانه على المنصة: https://{tenant_host(tenant)}",
+        )
+        return redirect("dashboard")
+
+    logger.error("Could not allocate a tenant slug for %s", request.user.pk)
+    messages.error(
+        request,
+        "تعذّر إنشاء المتجر في الوقت الحالي. حاول مرة أخرى، "
+        f"وإن تكرّر الأمر راسلنا على {SUPPORT_EMAIL}.",
+    )
+    return redirect("dashboard")
 
 
 @login_required
@@ -141,10 +259,10 @@ def enrollment_create(request, slug):
     return render(
         request,
         "dashboard.html",
-        {
-            "shops": _shop_rows(request.user),
-            "issued": {"tenant": tenant, "enrollment": enrollment, "token": token},
-        },
+        _dashboard_context(
+            request.user,
+            issued={"tenant": tenant, "enrollment": enrollment, "token": token},
+        ),
     )
 
 
@@ -185,17 +303,62 @@ def enrollment_revoke(request, slug, pk):
     return redirect("dashboard")
 
 
+# Anything outside this set is not worth the risk of an odd byte reaching a
+# Content-Disposition header or a Windows file name.
+_UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9]+")
+
+
+def config_filename(tenant, enrollment) -> str:
+    """A name that can only ever belong to this one enrollment.
+
+    Every enrollment for a shop used to produce a byte-identical file name, so
+    a second download landed in Downloads as "… (1).env" beside the first --
+    two files that look the same, only one of which works. Folding the
+    enrollment id (and its label, when it survives the trip to ASCII) into the
+    name makes the pair distinguishable at a glance in the file manager.
+    """
+    parts = ["sahlisoft-agent", _UNSAFE_IN_FILENAME.sub("-", tenant.slug).strip("-")]
+    parts.append(str(enrollment.pk))
+    label = _UNSAFE_IN_FILENAME.sub("-", enrollment.label or "").strip("-").lower()
+    if label:
+        parts.append(label)
+    return "-".join(part for part in parts if part) + ".env"
+
+
+def env_value(raw: str) -> str:
+    """Quote only when a naive .env parser would otherwise get it wrong.
+
+    Unconditional quoting is how ``AGENT_LABEL="lenovo"`` ended up meaning a
+    label with quote characters in it for anything that just splits on the
+    first "=". Arabic and spaces need no quoting; a "#" does, because that is
+    where a comment would start.
+    """
+    value = (raw or "").replace('"', "").replace("\r", " ").replace("\n", " ").strip()
+    return f'"{value}"' if "#" in value else value
+
+
 def render_agent_config(tenant, enrollment, token) -> str:
-    """The .env the on-premise agent reads. CRLF: it lands on a Windows box."""
+    """The .env the on-premise agent will read. CRLF: it lands on a Windows box.
+
+    Only ever called with a token that has already been checked against this
+    enrollment's digest -- a file with the secret line blank looks exactly like
+    a working one and is worse than no file at all, so that case never gets
+    this far (see :func:`enrollment_config`).
+    """
     host = tenant_host(tenant)
-    label = (enrollment.label or "").replace('"', "")
 
     lines = [
-        "# ملف إعداد عميل سهل سوفت (Sahlisoft Agent)",
-        "# ضعه بجانب برنامج العميل على جهاز نقطة البيع باسم: .env",
+        "# ملف ربط متجرك بمنصة سهل سوفت",
+        "# هذا الملف يحمل هوية متجرك ورمز الربط الخاص به.",
+        "#",
+        "# ملاحظة مهمة: برنامج الوكيل (الذي يقرأ بيانات متجرك ويرسلها إلى المنصة)",
+        "# ما زال قيد التجهيز ولم يصدر بعد، لذلك لا يمكن استخدام هذا الملف حالياً.",
+        "# عند صدوره ستتمكّن من تنزيله من لوحة التحكم، وسيطلب منك هذا الملف.",
+        "#",
+        "# احتفظ بالملف في مكان آمن وخاص إلى ذلك الحين.",
         "# تحذير: هذا الملف يحتوي على رمز سري. لا تشاركه ولا ترسله عبر البريد أو واتساب.",
         "",
-        "# عنوان المنصة التي يتصل بها العميل",
+        "# عنوان المنصة",
         f"PLATFORM_BASE_URL={platform_base_url()}",
         "",
         "# معرّف المتجر ونطاقه الفرعي على المنصة",
@@ -203,30 +366,16 @@ def render_agent_config(tenant, enrollment, token) -> str:
         f"TENANT_HOST={host}",
         f"TENANT_URL=https://{host}",
         "",
-        "# اسم الجهاز كما يظهر في لوحة التحكم",
-        f'AGENT_LABEL="{label}"',
+        "# اسم الجهاز ورقمه كما يظهران في لوحة التحكم",
+        f"AGENT_LABEL={env_value(enrollment.label)}",
         f"AGENT_ID={enrollment.pk}",
         "",
-    ]
-
-    if token:
-        lines += [
-            "# رمز الربط: يظهر مرة واحدة فقط عند الإنشاء ولا يمكن استرجاعه لاحقاً.",
-            f"AGENT_TOKEN={token}",
-        ]
-    else:
-        # Reaching this branch means the plaintext is already gone for good.
-        lines += [
-            "# رمز الربط غير متوفر: المنصة لا تحتفظ به، ولا يمكن استرجاعه بعد إنشائه.",
-            "# أنشئ رمز ربط جديداً من لوحة التحكم، ثم انسخه إلى السطر التالي.",
-            "AGENT_TOKEN=",
-        ]
-
-    lines += [
+        "# رمز الربط: يظهر مرة واحدة فقط عند الإنشاء ولا يمكن استرجاعه لاحقاً.",
+        f"AGENT_TOKEN={token}",
         "",
-        "# بعد تشغيل العميل بهذا الملف يسجّل نفسه لدى المنصة بحالة «بانتظار الموافقة».",
-        "# لن يبدأ بإرسال أي بيانات قبل أن تعتمده يدوياً من لوحة التحكم:",
-        "# الرمز وحده لا يكفي، والموافقة البشرية هي العامل الثاني للربط.",
+        "# بعد صدور برنامج الوكيل وتشغيله بهذا الملف يسجّل نفسه لدى المنصة",
+        "# بحالة «بانتظار الموافقة»، ولن يبدأ بإرسال أي بيانات قبل أن تعتمده يدوياً",
+        "# من لوحة التحكم: الرمز وحده لا يكفي، والموافقة البشرية هي العامل الثاني للربط.",
         "",
     ]
     return "\r\n".join(lines)
@@ -240,29 +389,55 @@ def enrollment_config(request, slug, pk):
     POST-only because the token has to travel *in*: the platform cannot look up
     a plaintext it never kept, so the only way this file can carry a real token
     is for the creation page to hand it back from the same browser, in the same
-    session, to the same owner. It is checked against the stored digest first,
-    so the download can never carry a token this enrollment does not own -- and
-    when no valid token comes with the request the file is still useful, just
-    with the secret line blank and an Arabic note saying why.
+    session, to the same owner.
+
+    When no valid token comes with the request this answers with a page, not a
+    file. It used to send the file anyway with ``AGENT_TOKEN=`` left blank and a
+    comment explaining why -- which in practice meant a second download sitting
+    in Downloads as "… (1).env", indistinguishable from the working copy until
+    the agent failed for no visible reason. A broken artifact that looks whole
+    is worse than a refusal, so the refusal is what the owner gets, next to the
+    one button that actually fixes it.
     """
     tenant = _managed_tenant(request.user, slug)
     enrollment = _enrollment(tenant, pk)
 
     raw = (request.POST.get("token") or "").strip()
-    token = raw if enrollment.check_token(raw) else ""
+    if not enrollment.check_token(raw):
+        return render(
+            request,
+            "agent_config_unavailable.html",
+            {
+                "tenant": tenant,
+                "enrollment": enrollment,
+                "status_label": STATUS_LABELS_AR.get(
+                    enrollment.status, enrollment.get_status_display()
+                ),
+                "support_email": SUPPORT_EMAIL,
+                "agent_released": AGENT_RELEASED,
+            },
+        )
 
     response = HttpResponse(
-        render_agent_config(tenant, enrollment, token),
+        render_agent_config(tenant, enrollment, raw),
         content_type="text/plain; charset=utf-8",
     )
     response["Content-Disposition"] = (
-        f'attachment; filename="sahlisoft-agent-{tenant.slug}.env"'
+        f'attachment; filename="{config_filename(tenant, enrollment)}"'
     )
     return response
 
 
 def home(request):
-    """Entry point: send people wherever they can actually go."""
+    """Entry point: send people wherever they can actually go.
+
+    The marketing page belongs to the platform host alone. On a shop's own
+    subdomain "/" is that shop's front door, and whoever lands there has already
+    chosen a shop -- pitching the product at them would be noise, so that host
+    keeps the straight-to-login behaviour it has always had.
+    """
     if request.user.is_authenticated:
         return redirect("dashboard")
-    return redirect("account_login")
+    if getattr(request, "tenant", None) is not None:
+        return redirect("account_login")
+    return render(request, "landing.html")

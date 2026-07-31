@@ -7,6 +7,9 @@ from . import views
 urlpatterns = [
     path("", views.home, name="home"),
     path("dashboard/", views.dashboard, name="dashboard"),
+    # No slug to resolve here -- this one *creates* the membership, so the only
+    # thing it trusts is request.user.
+    path("shops/new/", views.shop_create, name="shop_create"),
     path(
         "shops/<slug:slug>/agents/new/",
         views.enrollment_create,

@@ -6,8 +6,10 @@
   <h1>متاجري</h1>
 
   {% if issued %}
-    {# Rendered straight into the POST response: this is the only time the
-       plaintext token exists anywhere, including on our side. #}
+    {% comment %}
+      Rendered straight into the POST response: this is the only time the
+      plaintext token exists anywhere, including on our side.
+    {% endcomment %}
     <div class="card token-panel">
       <h2>رمز الربط الجديد — انسخه الآن</h2>
       <p class="muted">
@@ -25,14 +27,49 @@
         <a class="btn btn-ghost" href="{% url 'dashboard' %}">تم، أخفِ الرمز</a>
       </div>
       <p class="muted" style="margin-bottom:0;">
-        احفظ ملف الإعداد بجانب برنامج العميل على جهاز نقطة البيع.
-        بعد تشغيله سيظهر العميل هنا بحالة «بانتظار الموافقة»، ولن يُرسل أي بيانات
-        قبل أن تعتمده يدوياً من هذه الصفحة.
+        {% if agent_released %}
+          احفظ ملف الإعداد بجانب برنامج الوكيل على جهاز نقطة البيع. بعد تشغيله سيظهر
+          الجهاز هنا بحالة «بانتظار الموافقة»، ولن يُرسل أي بيانات قبل أن تعتمده يدوياً
+          من هذه الصفحة.
+        {% else %}
+          احتفظ بملف الإعداد في مكان آمن وخاص. برنامج الوكيل لم يصدر بعد، وعند صدوره
+          ستشغّله بهذا الملف فيظهر الجهاز هنا بحالة «بانتظار الموافقة»، ولن يُرسل أي
+          بيانات قبل أن تعتمده يدوياً من هذه الصفحة.
+        {% endif %}
       </p>
     </div>
   {% endif %}
 
   {% if shops %}
+    {% if not agent_released %}
+      {% comment %}
+        The tokens and the approval step are finished; the program that uses
+        them is not. Saying so here is the difference between "not released
+        yet" and "this feature is broken".
+      {% endcomment %}
+      <div class="support-note" style="margin-bottom:1.5rem;">
+        <p class="support-note-title">برنامج الوكيل قيد التجهيز</p>
+        <p>
+          برنامج الوكيل — وهو البرنامج الصغير الذي يُثبَّت على جهاز المتجر ليقرأ بيانات
+          سهل سوفت ويرسلها إلى المنصة — ما زال قيد التجهيز، <strong>ولم يُتَح للتنزيل
+          بعد</strong>. لذلك فإن أي رمز ربط تنشئه الآن لا يمكن استخدامه حتى صدور
+          البرنامج. ستتمكّن من تنزيل البرنامج من هذه الصفحة نفسها فور صدوره، وعندها
+          يعمل الرمز الذي جهّزته مباشرةً.
+        </p>
+      </div>
+    {% endif %}
+
+    {% if shop_form.errors %}
+      {% comment %}
+        The form lives in the empty state, so a bound-with-errors copy would
+        have nowhere to render for an owner who already has a shop.
+      {% endcomment %}
+      <div class="card" style="margin-bottom:1.5rem;">
+        <h2>إضافة متجر جديد</h2>
+        {% include "snippets/shop_form.html" %}
+      </div>
+    {% endif %}
+
     <p class="muted">هذه هي المتاجر المصرّح لك بالاطّلاع على بياناتها.</p>
 
     {% for shop in shops %}
@@ -103,7 +140,10 @@
                               <button type="submit" class="btn btn-small btn-ghost">إلغاء</button>
                             </form>
                           {% endif %}
-                          {# Same file, minus the secret: the token is gone. #}
+                          {% comment %}
+                            No token to send with it, so this lands on the
+                            page that explains why and offers a replacement.
+                          {% endcomment %}
                           <form method="post" action="{% url 'enrollment_config' shop.tenant.slug agent.obj.pk %}">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-small btn-ghost">ملف الإعداد</button>
@@ -127,8 +167,15 @@
             <div class="actions">
               <input type="text" id="label-{{ shop.tenant.slug }}" name="label"
                      maxlength="120" placeholder="مثال: جهاز الكاشير الرئيسي">
-              <button type="submit" class="btn">إنشاء رمز ربط جديد</button>
+              <button type="submit" class="btn">
+                {% if agent_released %}إنشاء رمز ربط جديد{% else %}تجهيز رمز ربط مسبقاً{% endif %}
+              </button>
             </div>
+            {% if not agent_released %}
+              <p class="helptext" style="margin-top:.4rem;">
+                يمكنك تجهيز رمز الربط من الآن، لكنه لن يعمل قبل صدور برنامج الوكيل.
+              </p>
+            {% endif %}
           </form>
         {% endif %}
       </section>
@@ -137,9 +184,21 @@
     <div class="card empty">
       <h2>لا يوجد متجر مرتبط بحسابك بعد</h2>
       <p class="muted">
-        حسابك <strong>{{ user.email }}</strong> غير مرتبط حالياً بأي متجر، لذلك لا توجد بيانات لعرضها.
-        يرجى التواصل مع مسؤول المنصة لربط حسابك بمتجرك، وستظهر بياناته هنا فور اكتمال الربط.
+        حسابك <strong>{{ user.email }}</strong> غير مرتبط حالياً بأي متجر، لذلك لا توجد
+        بيانات لعرضها. أنشئ متجرك الآن بنفسك — يجهز خلال ثوانٍ ويحصل على نطاقه الفرعي
+        الخاص على المنصة.
       </p>
+
+      {% include "snippets/shop_form.html" %}
+
+      <div class="fallback-note">
+        <p class="muted" style="margin-bottom:0;">
+          إن تعذّر عليك إنشاء المتجر من هنا، أو كان متجرك مسجّلاً لدينا وتريد ربط حسابك
+          به، يرجى التواصل مع مسؤول المنصة على
+          <a href="mailto:{{ support_email }}" dir="ltr">{{ support_email }}</a>،
+          وستظهر بياناته هنا فور اكتمال الربط.
+        </p>
+      </div>
     </div>
   {% endif %}
 {% endblock %}

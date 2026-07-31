@@ -177,6 +177,39 @@
       user-select: all;
     }
 
+    /* Shown wherever a page ends with "go check your inbox". Deliberately
+       calmer than an error box: nothing has gone wrong yet. */
+    .support-note {
+      margin: 1.25rem 0 0;
+      padding: .9rem 1rem;
+      border: 1px solid var(--border);
+      border-inline-start: 3px solid var(--accent);
+      border-radius: var(--radius);
+      background: var(--bg);
+      font-size: .92rem;
+    }
+    .support-note p { margin: 0; color: var(--muted); }
+    .support-note p + p { margin-top: .35rem; }
+    .support-note-title { font-weight: 700; color: var(--text) !important; }
+
+    /* ---- self-service shop creation (dashboard empty state) ---- */
+    .shop-form { margin: 1.5rem auto 0; max-width: 26rem; text-align: start; }
+    .shop-form .subdomain-preview {
+      display: flex;
+      align-items: center;
+      gap: .35rem;
+      direction: ltr;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: .85rem;
+      color: var(--muted);
+      margin-top: .3rem;
+    }
+    .fallback-note {
+      margin-top: 1.5rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+
     /* allauth's own pages render straight into <main> with no markup of ours
        to hang a card on, so the card is the main element itself. */
     main.auth-page {
@@ -217,6 +250,14 @@
             <button type="submit" class="btn btn-ghost">تسجيل الخروج</button>
           </form>
         </div>
+      {% else %}
+        {% comment %}
+          Empty by default: the login page has no business linking to itself;
+          only the landing page fills this in. Block comment and not the hash
+          form because Django's comment regex is not DOTALL -- a multi-line
+          hash comment inside a rendered block comes out as visible page text.
+        {% endcomment %}
+        {% block header_nav %}{% endblock %}
       {% endif %}
     </div>
   </header>

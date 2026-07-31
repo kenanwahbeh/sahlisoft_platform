@@ -1,0 +1,26 @@
+{% comment %}
+The self-service shop form. Lives in a snippet because it has to appear both in
+the dashboard's empty state and, when a POST comes back invalid, above a list of
+shops the owner already has -- and a form whose errors render in only one of
+those two places is a form that silently swallows them.
+{% endcomment %}
+<form method="post" action="{% url 'shop_create' %}" class="shop-form">
+  {% csrf_token %}
+  {{ shop_form.non_field_errors }}
+
+  <div>
+    <label for="{{ shop_form.name.id_for_label }}">{{ shop_form.name.label }}</label>
+    {{ shop_form.name.errors }}
+    {{ shop_form.name }}
+  </div>
+
+  <div>
+    <label for="{{ shop_form.subdomain.id_for_label }}">{{ shop_form.subdomain.label }}</label>
+    {{ shop_form.subdomain.errors }}
+    {{ shop_form.subdomain }}
+    <p class="subdomain-preview">عنوان متجرك سيكون <span dir="ltr">….{{ platform_domain }}</span></p>
+    <p class="helptext">{{ shop_form.subdomain.help_text }}</p>
+  </div>
+
+  <button type="submit" class="btn btn-block">أنشئ متجري</button>
+</form>

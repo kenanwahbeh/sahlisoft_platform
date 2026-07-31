@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{# Overrides allauth's own account/verification_sent.html. The upstream copy
+   ends at "contact us" without ever saying who "us" is, which on a mandatory
+   verification flow leaves a new account stranded. #}
+
+{% block title %}تأكيد البريد الإلكتروني — منصة سهل سوفت{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <h1>تحقّق من بريدك الإلكتروني</h1>
+    <p class="muted">
+      أرسلنا إليك رسالة تحتوي على رابط تفعيل الحساب. افتح الرسالة واضغط على الرابط
+      لإكمال إنشاء حسابك على المنصة.
+    </p>
+
+    {% include "snippets/support_contact.html" %}
+
+    <p class="muted" style="margin-top:1.25rem; margin-bottom:0;">
+      فعّلت حسابك؟ <a href="{% url 'account_login' %}">سجّل الدخول</a>
+    </p>
+  </div>
+{% endblock %}

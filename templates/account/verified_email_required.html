@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{# Overrides allauth's account/verified_email_required.html: the other page
+   that ends with "go look in your inbox", reached by a signed-in account whose
+   address was never confirmed. #}
+
+{% block title %}تفعيل البريد الإلكتروني مطلوب — منصة سهل سوفت{% endblock %}
+
+{% block content %}
+  <div class="card auth-card">
+    <h1>فعّل بريدك الإلكتروني أولاً</h1>
+    <p class="muted">
+      هذا الجزء من المنصة يتطلّب تأكيد ملكيتك للبريد الإلكتروني المسجّل.
+      أرسلنا إليك رسالة تحتوي على رابط التفعيل؛ افتحها واضغط على الرابط ثم عد إلى هنا.
+    </p>
+
+    {% include "snippets/support_contact.html" %}
+  </div>
+{% endblock %}
