@@ -156,6 +156,19 @@ class AgentEnrollment(models.Model):
         related_name="issued_enrollments",
     )
 
+    # The following are filled in by the agent itself, not by the dashboard --
+    # see accounts/api_views.py::agent_register. They describe the one machine
+    # this token is bound to, not a credential, so there is nothing here to
+    # hash or hide.
+    hostname = models.CharField(_("hostname"), max_length=255, blank=True)
+    os_name = models.CharField(_("operating system"), max_length=100, blank=True)
+    agent_version = models.CharField(_("agent version"), max_length=30, blank=True)
+    db_folder = models.CharField(_("database folder"), max_length=500, blank=True)
+    registered_at = models.DateTimeField(_("registered at"), null=True, blank=True)
+    # A Cloudflare tunnel UUID, not a secret -- the connector token it is
+    # exchanged for is never stored, only handed back to the agent that asked.
+    cf_tunnel_id = models.CharField(_("Cloudflare tunnel id"), max_length=64, blank=True)
+
     class Meta:
         verbose_name = _("agent enrollment")
         verbose_name_plural = _("agent enrollments")
@@ -226,3 +239,69 @@ class AgentEnrollment(models.Model):
         """Record a check-in. Called by the agent API, not by the dashboard."""
         self.last_seen_at = timezone.now()
         self.save(update_fields=["last_seen_at"])
+
+
+class AgentCommand(models.Model):
+    """One read-only instruction queued for an agent, run on its next heartbeat.
+
+    The agent never receives a push -- it always initiates by calling
+    /api/agent/heartbeat/, and this table is what that endpoint hands back.
+    `kind` matches a handler name in the agent's own worker.py (ping, query,
+    list_databases, fingerprint, list_tables, table_schema, agent_status);
+    `params` rides along verbatim as the rest of that command's JSON body, so
+    adding a new kind never needs a migration here.
+
+    A command is SENT the moment it is handed to the agent, not on creation,
+    so "how long has this actually been sitting on the shop's machine" stays
+    answerable. The agent posts its result back inside the *next*
+    heartbeat's `results` list -- there is no separate results endpoint.
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = "queued", _("queued")
+        SENT = "sent", _("sent")
+        DONE = "done", _("done")
+        FAILED = "failed", _("failed")
+
+    enrollment = models.ForeignKey(
+        AgentEnrollment, on_delete=models.CASCADE, related_name="commands"
+    )
+    kind = models.CharField(_("kind"), max_length=32)
+    params = models.JSONField(_("parameters"), default=dict, blank=True)
+    status = models.CharField(
+        _("status"), max_length=16, choices=Status.choices, default=Status.QUEUED
+    )
+    result = models.JSONField(_("result"), null=True, blank=True)
+    error = models.CharField(_("error"), max_length=600, blank=True)
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    sent_at = models.DateTimeField(_("sent at"), null=True, blank=True)
+    completed_at = models.DateTimeField(_("completed at"), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("agent command")
+        verbose_name_plural = _("agent commands")
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.kind} -> {self.enrollment} ({self.status})"
+
+    def mark_sent(self):
+        self.status = self.Status.SENT
+        self.sent_at = timezone.now()
+
+    def as_payload(self) -> dict:
+        """What the agent receives: its own params plus id/type on top."""
+        payload = {"id": self.pk, "type": self.kind}
+        payload.update(self.params or {})
+        return payload
+
+    def record_result(self, item: dict) -> None:
+        """Absorb one entry from the agent's heartbeat `results` list."""
+        self.result = item.get("result")
+        self.error = str(item.get("error") or "")[:600]
+        self.status = self.Status.DONE if item.get("ok") else self.Status.FAILED
+        self.completed_at = timezone.now()
+        self.save(update_fields=["result", "error", "status", "completed_at"])

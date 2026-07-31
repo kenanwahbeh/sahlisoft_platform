@@ -11,7 +11,7 @@ from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.db.models import Count
 from django.utils.translation import gettext_lazy as _
 
-from .models import AgentEnrollment, Membership, Tenant, User
+from .models import AgentCommand, AgentEnrollment, Membership, Tenant, User
 
 
 class MembershipInline(admin.TabularInline):
@@ -106,3 +106,25 @@ class AgentEnrollmentAdmin(admin.ModelAdmin):
 
     def has_add_permission(self, request):
         return False
+
+
+@admin.register(AgentCommand)
+class AgentCommandAdmin(admin.ModelAdmin):
+    """Manual command dispatch for now -- the dashboard UI is a later phase.
+
+    Support staff can queue one (kind + params) against an active
+    enrollment and watch it move queued -> sent -> done/failed as the
+    agent's next couple of heartbeats land.
+    """
+
+    list_display = ["kind", "enrollment", "status", "created_at", "sent_at", "completed_at"]
+    list_filter = ["status", "kind"]
+    search_fields = ["enrollment__label", "enrollment__tenant__name"]
+    autocomplete_fields = ["enrollment"]
+    readonly_fields = ["status", "result", "error", "sent_at", "completed_at", "created_by"]
+    ordering = ["-created_at"]
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
