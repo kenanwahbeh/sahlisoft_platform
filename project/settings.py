@@ -206,11 +206,13 @@ if not DEBUG:
 
 # ---------------------------------------------------------------- assistant
 
-# The in-dashboard assistant (assistant/) calls the Claude API on the owner's
-# behalf. Left unset, the feature stays reachable but every run finishes with
+# The in-dashboard assistant (assistant/) calls OpenCode Zen's free "Big
+# Pickle" model on the owner's behalf -- not Anthropic or Google directly,
+# both unreachable from Syria under sanctions rules regardless of payment
+# method. Left unset, the feature stays reachable but every run finishes with
 # "not enabled on this platform yet" rather than a traceback -- same shape as
 # RESEND_API_KEY above, so a dev checkout runs without any credential.
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+OPENCODE_ZEN_API_KEY = os.environ.get("OPENCODE_ZEN_API_KEY", "")
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

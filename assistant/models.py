@@ -5,12 +5,14 @@ through the acting user's Membership -- same rule as every other view in this
 project. The assistant can read a shop's books; letting a conversation be
 addressed by id alone would be the whole isolation model undone.
 
-**Messages store the API's own content blocks, not just text.** The Messages
-API is stateless: every turn resends the full history, and a tool_use block
-must come back paired with its tool_result or the next request is rejected.
-Keeping ``blocks`` verbatim means a conversation replays exactly as it
-happened; ``text`` is a flattened copy for the template, derived once on save
-rather than re-walked on every render.
+**Messages store an internal content-block shape, not just text.** The
+underlying chat API is stateless: every turn resends the full history, and a
+tool_use block must come back paired with its tool_result or the next request
+is rejected. ``claude.py`` translates these blocks to and from whatever the
+active provider's own wire format needs -- the shape here is this app's own,
+not any one vendor's. Keeping ``blocks`` verbatim means a conversation replays
+exactly as it happened; ``text`` is a flattened copy for the template, derived
+once on save rather than re-walked on every render.
 """
 
 from django.db import models

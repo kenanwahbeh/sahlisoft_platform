@@ -11,7 +11,7 @@ Three things here are worth protecting, and none of them are the model:
   regression there turns a ten-second answer back into a three-minute one.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.urls import reverse
@@ -257,6 +257,99 @@ class AskTests(TestCase):
         ).content.decode()
         self.assertIn("msg msg-error", html)
         self.assertIn("لا يوجد جهاز مفعّل", html)
+
+
+class AdvanceToolLoopTests(TestCase):
+    """The one thing nothing else in this file exercises: a real call/response
+    round trip through the LLM, including a tool call and its result.
+
+    Mocked at ``claude.client()`` -- the same seam the ``NotConfigured`` path
+    already depends on -- rather than a real ``AgentCommand`` row, so this
+    doesn't have to wait out ``agent_tools.COMMAND_TIMEOUT``.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(email="owner@example.com", password="pw")
+        self.tenant = Tenant.objects.create(name="متجري", slug="mine")
+        Membership.objects.create(
+            user=self.owner, tenant=self.tenant, role=Membership.Role.OWNER
+        )
+        self.enrollment, _ = AgentEnrollment.issue(tenant=self.tenant)
+        self.enrollment.approve()
+        self.conversation = Conversation.objects.create(
+            tenant=self.tenant, user=self.owner
+        )
+        self.client.force_login(self.owner)
+        self.url = reverse(
+            "assistant_ask", args=[self.tenant.slug, self.conversation.pk]
+        )
+
+        patcher = patch.object(
+            claude, "start", side_effect=lambda run: claude._worker(run.pk)
+        )
+        self.addCleanup(patcher.stop)
+        patcher.start()
+
+    @staticmethod
+    def _response(*, content, tool_calls, finish_reason):
+        message = {"role": "assistant", "content": content, "tool_calls": tool_calls}
+        return MagicMock(
+            model_dump=MagicMock(
+                return_value={
+                    "choices": [{"message": message, "finish_reason": finish_reason}]
+                }
+            )
+        )
+
+    @patch.object(claude, "client")
+    @patch("assistant.agent_tools.run_command")
+    def test_a_tool_call_is_executed_and_the_final_answer_is_saved(
+        self, run_command, client
+    ):
+        run_command.return_value = {"ok": True, "result": [{"n": 1}], "error": ""}
+        fake_api = MagicMock()
+        fake_api.chat.completions.create.side_effect = [
+            self._response(
+                content=None,
+                tool_calls=[
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "query",
+                            "arguments": '{"sql": "select 1"}',
+                        },
+                    }
+                ],
+                finish_reason="tool_calls",
+            ),
+            self._response(content="النتيجة كذا", tool_calls=None, finish_reason="stop"),
+        ]
+        client.return_value = fake_api
+
+        self.client.post(self.url, {"question": "كم مبيعاتي؟"}, **REQUEST)
+
+        run = self.conversation.runs.first()
+        self.assertEqual(run.status, Run.Status.DONE)
+
+        messages = list(self.conversation.messages.order_by("id"))
+        self.assertEqual(len(messages), 4)  # question, tool_use, tool_result, final text
+        self.assertEqual(messages[1].tool_uses[0]["name"], "query")
+        self.assertTrue(messages[2].is_tool_result)
+        self.assertEqual(messages[3].text, "النتيجة كذا")
+
+        self.assertEqual(
+            run_command.call_args.args[1:3], ("query", {"sql": "select 1"})
+        )
+
+        # Proves _to_wire_messages actually produced a role:"tool" message
+        # for the second call -- not just that the loop didn't crash.
+        second_call_messages = fake_api.chat.completions.create.call_args_list[
+            1
+        ].kwargs["messages"]
+        tool_messages = [m for m in second_call_messages if m.get("role") == "tool"]
+        self.assertEqual(len(tool_messages), 1)
+        self.assertEqual(tool_messages[0]["tool_call_id"], "call_1")
 
 
 class HeartbeatPacingTests(TestCase):
