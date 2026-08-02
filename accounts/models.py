@@ -141,6 +141,13 @@ class AgentEnrollment(models.Model):
     #: Deleting is only offered once an agent is demonstrably not in service.
     DELETABLE_STATUSES = frozenset({Status.STOPPED, Status.REVOKED})
 
+    #: How stale ``last_seen_at`` may get before the dashboard stops calling an
+    #: agent reachable. The agent heartbeats once a minute by default, so this
+    #: is three missed beats -- long enough that one dropped request on a shop's
+    #: mobile connection does not flicker the light, short enough that a machine
+    #: someone unplugged this morning is not still shown as online at noon.
+    ONLINE_WINDOW = timedelta(minutes=3)
+
     # Enough of the token to tell two credentials apart in a table, far too
     # little to be worth anything to whoever reads that table.
     TOKEN_PREFIX_LENGTH = 8
@@ -258,6 +265,20 @@ class AgentEnrollment(models.Model):
     def is_usable(self) -> bool:
         """Approved, not revoked, and the shop itself still switched on."""
         return self.status == self.Status.ACTIVE and self.tenant.is_active
+
+    @property
+    def is_online(self) -> bool:
+        """Has this machine checked in recently enough to be called reachable?
+
+        Purely a statement about the clock, deliberately indifferent to status:
+        a stopped agent keeps heartbeating (that is what makes stopping
+        reversible), and the dashboard wants to say "متوقف، لكنه متصل" rather
+        than pretend a machine that is plainly answering is dark. The two facts
+        are combined at the point of display, not conflated here.
+        """
+        if self.last_seen_at is None:
+            return False
+        return timezone.now() - self.last_seen_at <= self.ONLINE_WINDOW
 
     def approve(self):
         self.status = self.Status.ACTIVE

@@ -3,273 +3,674 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17667f" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0c141a" media="(prefers-color-scheme: dark)">
+  <meta name="description" content="{% block meta_description %}تابع مبيعات متجرك ومخزونك وحساباتك من أي مكان، دون تغيير برنامج سهل سوفت الذي تستخدمه.{% endblock %}">
   <title>{% block title %}منصة سهل سوفت{% endblock %}</title>
+
+  {# The brand mark from snippets/logo.html, re-encoded. Keep the two in step. #}
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2317667f'/%3E%3Cg fill='%23fff'%3E%3Crect x='8' y='18' width='4' height='7' rx='1.5' opacity='.72'/%3E%3Crect x='14' y='13' width='4' height='12' rx='1.5' opacity='.86'/%3E%3Crect x='20' y='7' width='4' height='18' rx='1.5'/%3E%3C/g%3E%3C/svg%3E">
+
+  {% comment %}
+    Resolve the theme before the first paint. A stylesheet cannot read
+    localStorage, so without this the page renders light and then snaps to dark
+    a frame later -- the flash is worst on exactly the slow devices this product
+    is aimed at. Kept inline and tiny for the same reason: an external file is a
+    blocking request in the critical path.
+
+    It writes an *explicit* light/dark, never "auto", so every rule below has a
+    single attribute to key on. The media-query block in the stylesheet covers
+    the case this script never runs (JS off), which is why the dark palette is
+    written twice and must be edited twice.
+  {% endcomment %}
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("theme");
+        var dark = stored ? stored === "dark"
+          : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+      } catch (e) { /* private mode, or no storage at all: system default wins */ }
+    })();
+  </script>
+
   {# No CDNs: the VPS may be firewalled, and a half-loaded stylesheet is worse than none. #}
   <style>
+    /* ============================================================ tokens */
     :root {
-      --bg: #f4f6f8;
+      color-scheme: light;
+
+      --bg: #f5f7f9;
       --surface: #ffffff;
-      --border: #dde3ea;
-      --text: #1c2530;
-      --muted: #667487;
-      --accent: #1f6f8b;
-      --accent-dark: #17566c;
-      --ok-bg: #e3f5ea;
-      --ok-text: #1d6b3f;
-      --off-bg: #fbe6e6;
-      --off-text: #93342f;
-      --radius: 10px;
+      --surface-2: #eef2f6;
+      --border: #dde5ec;
+      --border-strong: #c3d0db;
+
+      --text: #16202a;
+      --muted: #5c6d7e;
+      --faint: #8494a3;
+
+      --accent: #17667f;
+      --accent-hover: #0f5468;
+      --accent-contrast: #ffffff;
+      --accent-soft: #e4f1f6;
+
+      --ok-bg: #e2f4e9;   --ok-text: #17643a;   --ok-border: #b8e3ca;
+      --warn-bg: #fdf2dd; --warn-text: #855111; --warn-border: #f0d9a8;
+      --bad-bg: #fceaea;  --bad-text: #97302b;  --bad-border: #f2c9c6;
+      --info-bg: #e6f0f8; --info-text: #1d5480; --info-border: #c2daee;
+
+      --shadow-sm: 0 1px 2px rgba(16, 32, 48, .06);
+      --shadow-md: 0 2px 6px rgba(16, 32, 48, .07), 0 1px 2px rgba(16, 32, 48, .05);
+      --shadow-lg: 0 12px 32px rgba(16, 32, 48, .12);
+
+      --radius-sm: 7px;
+      --radius: 11px;
+      --radius-lg: 16px;
+
+      --header-h: 62px;
     }
+
+    /* The dark palette, copy 1 of 2: an explicit choice, or the head script's
+       reading of the system preference. */
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+
+      --bg: #0c141a;
+      --surface: #121d25;
+      --surface-2: #19262f;
+      --border: #24343f;
+      --border-strong: #354854;
+
+      --text: #e7eff5;
+      --muted: #93a7b6;
+      --faint: #6d8394;
+
+      --accent: #4fb0cc;
+      --accent-hover: #6cc2da;
+      --accent-contrast: #06212b;
+      --accent-soft: #12303c;
+
+      --ok-bg: #102f20;   --ok-text: #6fd39a;   --ok-border: #1f5138;
+      --warn-bg: #33270e; --warn-text: #e7bd6a; --warn-border: #574320;
+      --bad-bg: #351a1a;  --bad-text: #f0928c;  --bad-border: #57292b;
+      --info-bg: #122b3d; --info-text: #7fbde8; --info-border: #1f4664;
+
+      --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+      --shadow-md: 0 2px 8px rgba(0, 0, 0, .45);
+      --shadow-lg: 0 14px 36px rgba(0, 0, 0, .55);
+    }
+
+    /* Copy 2 of 2, for a browser with JavaScript switched off: the script above
+       never ran, so no data-theme exists to match on. Same values; edit both. */
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) {
+        color-scheme: dark;
+
+        --bg: #0c141a;
+        --surface: #121d25;
+        --surface-2: #19262f;
+        --border: #24343f;
+        --border-strong: #354854;
+
+        --text: #e7eff5;
+        --muted: #93a7b6;
+        --faint: #6d8394;
+
+        --accent: #4fb0cc;
+        --accent-hover: #6cc2da;
+        --accent-contrast: #06212b;
+        --accent-soft: #12303c;
+
+        --ok-bg: #102f20;   --ok-text: #6fd39a;   --ok-border: #1f5138;
+        --warn-bg: #33270e; --warn-text: #e7bd6a; --warn-border: #574320;
+        --bad-bg: #351a1a;  --bad-text: #f0928c;  --bad-border: #57292b;
+        --info-bg: #122b3d; --info-text: #7fbde8; --info-border: #1f4664;
+
+        --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+        --shadow-md: 0 2px 8px rgba(0, 0, 0, .45);
+        --shadow-lg: 0 14px 36px rgba(0, 0, 0, .55);
+      }
+    }
+
+    /* ============================================================== base */
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Noto Sans Arabic", Arial, sans-serif;
+      /* Segoe UI carries the Arabic on Windows, where the shop owners are;
+         the Noto faces cover Android and Linux. No webfont is downloaded --
+         a 300KB Arabic face is a poor trade on a metered connection. */
+      font-family: "Segoe UI", "Noto Naskh Arabic", "Noto Sans Arabic", Tahoma, Arial, sans-serif;
       font-size: 16px;
-      line-height: 1.7;
+      line-height: 1.75;
       -webkit-text-size-adjust: 100%;
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
     }
+
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
-    h1, h2, h3 { line-height: 1.35; margin: 0 0 .5rem; font-weight: 600; }
-    h1 { font-size: 1.55rem; }
-    h2 { font-size: 1.2rem; }
-    p { margin: 0 0 1rem; }
-    .wrap { max-width: 980px; margin: 0 auto; padding: 0 1.25rem; }
 
-    .site-header {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
+    h1, h2, h3 { line-height: 1.4; margin: 0 0 .5rem; font-weight: 700; letter-spacing: -.01em; }
+    h1 { font-size: 1.6rem; }
+    h2 { font-size: 1.22rem; }
+    h3 { font-size: 1.02rem; }
+    p { margin: 0 0 1rem; }
+
+    /* Numerals, hostnames and tokens are Latin inside Arabic prose; without
+       this they land on the wrong side of the sentence. */
+    [dir="ltr"] { direction: ltr; text-align: left; unicode-bidi: isolate; }
+
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 0 1.25rem; }
+    .muted { color: var(--muted); font-size: .93rem; }
+    .faint { color: var(--faint); }
+
+    /* Visible only once tabbed to -- the first stop for a keyboard user, and
+       invisible to everyone else. */
+    .skip-link {
+      position: absolute;
+      inset-inline-start: -9999px;
+      top: .5rem;
+      z-index: 100;
+      background: var(--accent);
+      color: var(--accent-contrast);
+      padding: .55rem 1rem;
+      border-radius: var(--radius);
+      font-weight: 600;
     }
+    .skip-link:focus { inset-inline-start: .75rem; text-decoration: none; }
+
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 3px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+      }
+    }
+
+    /* ============================================================ header */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: color-mix(in srgb, var(--surface) 88%, transparent);
+      border-bottom: 1px solid var(--border);
+      /* Ignored by browsers that don't support it, which simply get the solid
+         colour above -- nothing depends on the blur. */
+      backdrop-filter: saturate(160%) blur(12px);
+    }
+    /* color-mix is recent enough that an older phone would get a transparent
+       header over scrolling text. Opaque fallback first, tinted only where the
+       function actually parses. */
+    @supports not (background: color-mix(in srgb, red 50%, transparent)) {
+      .site-header { background: var(--surface); }
+    }
+
     .header-inner {
       display: flex;
       flex-wrap: wrap;
-      gap: .75rem 1rem;
+      gap: .6rem 1rem;
       align-items: center;
       justify-content: space-between;
-      min-height: 62px;
-      padding-block: .6rem;
+      min-height: var(--header-h);
+      padding-block: .55rem;
     }
     .brand {
-      font-size: 1.1rem;
+      display: inline-flex;
+      align-items: center;
+      gap: .55rem;
+      font-size: 1.06rem;
       font-weight: 700;
       color: var(--text);
     }
     .brand:hover { text-decoration: none; color: var(--accent); }
-    .user-box { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
-    .user-email { color: var(--muted); font-size: .9rem; }
+    .logo-mark { flex: none; display: block; }
 
-    main.wrap { padding-block: 2rem 3rem; }
+    .header-tools { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+    .user-email {
+      color: var(--muted);
+      font-size: .88rem;
+      max-width: 15rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
+    .icon-btn {
+      display: grid;
+      place-items: center;
+      width: 2.25rem;
+      height: 2.25rem;
+      flex: none;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      transition: color .15s, border-color .15s, background .15s;
+    }
+    .icon-btn:hover { color: var(--accent); border-color: var(--border-strong); background: var(--surface-2); }
+    .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* Each icon shows the mode the button would switch *to*, not the one in
+       effect -- a sun on a dark page reads as "go light", which is the action. */
+    .theme-toggle .i-sun { display: none; }
+    :root[data-theme="dark"] .theme-toggle .i-sun { display: block; }
+    :root[data-theme="dark"] .theme-toggle .i-moon { display: none; }
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme]) .theme-toggle .i-sun { display: block; }
+      :root:not([data-theme]) .theme-toggle .i-moon { display: none; }
+    }
+
+    /* ============================================================== main */
+    main.wrap { padding-block: 2rem 3rem; flex: 1 0 auto; }
+
+    /* ============================================================= cards */
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
+      border-radius: var(--radius-lg);
+      padding: 1.6rem;
+      box-shadow: var(--shadow-sm);
     }
-    .auth-card { max-width: 420px; margin-inline: auto; }
+    .auth-card { max-width: 30rem; margin-inline: auto; }
+    .auth-card h1 { font-size: 1.35rem; }
+    /* A mark above the heading, so a page reached straight from an email link
+       identifies itself before the reader has to parse any Arabic. */
+    .auth-mark { display: flex; justify-content: center; margin-bottom: .9rem; }
+    .auth-mark .logo-mark { width: 38px; height: 38px; }
 
+    /* =========================================================== buttons */
     .btn {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .45rem;
       font: inherit;
       font-weight: 600;
-      padding: .5rem 1.1rem;
+      padding: .55rem 1.15rem;
       border-radius: var(--radius);
       border: 1px solid transparent;
       cursor: pointer;
       background: var(--accent);
-      color: #fff;
+      color: var(--accent-contrast);
+      text-align: center;
+      transition: background .15s, border-color .15s, color .15s, transform .06s;
     }
-    .btn:hover { background: var(--accent-dark); text-decoration: none; }
-    .btn-ghost {
-      background: transparent;
-      color: var(--muted);
-      border-color: var(--border);
-    }
-    .btn-ghost:hover { background: var(--bg); color: var(--text); }
-    .btn-block { width: 100%; }
+    .btn:hover { background: var(--accent-hover); text-decoration: none; color: var(--accent-contrast); }
+    .btn:active { transform: translateY(1px); }
+    .btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
+    .btn-ghost { background: var(--surface); color: var(--muted); border-color: var(--border); }
+    .btn-ghost:hover { background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }
+
+    /* Destructive actions earn red only on hover: a row of permanently red
+       buttons trains the eye to stop seeing them. */
+    .btn-danger:hover { background: var(--bad-bg); color: var(--bad-text); border-color: var(--bad-border); }
+
+    .btn-block { width: 100%; }
+    .btn-small { padding: .3rem .75rem; font-size: .85rem; border-radius: var(--radius-sm); }
+    .btn:disabled, .btn[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+
+    /* ============================================================= forms */
     form p, form div { margin: 0 0 1rem; }
-    label { display: block; font-size: .9rem; font-weight: 600; margin-bottom: .3rem; }
-    input[type="text"], input[type="email"], input[type="password"], input[type="url"], input[type="tel"] {
+    label { display: block; font-size: .89rem; font-weight: 600; margin-bottom: .3rem; }
+    input[type="text"], input[type="email"], input[type="password"],
+    input[type="url"], input[type="tel"], select, textarea {
       width: 100%;
       font: inherit;
-      padding: .55rem .7rem;
+      padding: .58rem .75rem;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--surface);
       color: var(--text);
+      transition: border-color .15s, box-shadow .15s;
     }
-    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
-    input[type="checkbox"] { margin-inline-end: .4rem; }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    input[type="checkbox"] { margin-inline-end: .4rem; accent-color: var(--accent); }
     .helptext, .helptext ul { color: var(--muted); font-size: .82rem; }
     ul.errorlist {
       list-style: none;
       margin: 0 0 .6rem;
       padding: .5rem .8rem;
       border-radius: var(--radius);
-      background: var(--off-bg);
-      color: var(--off-text);
+      background: var(--bad-bg);
+      border: 1px solid var(--bad-border);
+      color: var(--bad-text);
       font-size: .88rem;
     }
 
+    /* ============================================================ tables */
     table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: start; padding: .7rem .8rem; border-bottom: 1px solid var(--border); }
-    thead th { font-size: .85rem; color: var(--muted); text-transform: none; }
-    tbody tr:last-child td { border-bottom: none; }
-
-    .badge {
-      display: inline-block;
+    th, td { text-align: start; padding: .75rem .8rem; border-bottom: 1px solid var(--border); }
+    thead th {
       font-size: .8rem;
       font-weight: 600;
-      padding: .15rem .6rem;
-      border-radius: 999px;
+      color: var(--muted);
+      text-transform: none;
+      border-bottom-color: var(--border-strong);
     }
-    .badge-ok { background: var(--ok-bg); color: var(--ok-text); }
-    .badge-off { background: var(--off-bg); color: var(--off-text); }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background .12s; }
+    tbody tr:hover { background: var(--surface-2); }
 
-    .messages { list-style: none; margin: 0 0 1.5rem; padding: 0; }
-    .messages li {
-      padding: .6rem 1rem;
+    /* ============================================================ badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      font-size: .79rem;
+      font-weight: 600;
+      padding: .18rem .65rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge-ok   { background: var(--ok-bg);   color: var(--ok-text);   border-color: var(--ok-border); }
+    .badge-wait { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-border); }
+    .badge-off  { background: var(--bad-bg);  color: var(--bad-text);  border-color: var(--bad-border); }
+    .badge-idle { background: var(--surface-2); color: var(--muted);   border-color: var(--border); }
+
+    /* ========================================================== messages */
+    /* Every message used to render in the same neutral box, so "تم الحذف"
+       and "تعذّر الحذف" were the same object on the page and the only way to
+       tell them apart was to read them. Level now drives colour and icon. */
+    .messages { list-style: none; margin: 0 0 1.5rem; padding: 0; display: grid; gap: .55rem; }
+    .msg {
+      display: flex;
+      align-items: flex-start;
+      gap: .65rem;
+      padding: .7rem .9rem;
       border: 1px solid var(--border);
       border-radius: var(--radius);
       background: var(--surface);
-      margin-bottom: .5rem;
+      box-shadow: var(--shadow-sm);
+      animation: msg-in .22s ease-out;
     }
-    .muted { color: var(--muted); font-size: .92rem; }
-    .empty { text-align: center; padding-block: 1rem; }
-
-    @media (max-width: 560px) {
-      .table-scroll { overflow-x: auto; }
+    @keyframes msg-in { from { opacity: 0; transform: translateY(-4px); } }
+    .msg svg { flex: none; width: 19px; height: 19px; margin-top: .22rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .msg-body { flex: 1; min-width: 0; }
+    .msg-success { background: var(--ok-bg);   border-color: var(--ok-border);   color: var(--ok-text); }
+    .msg-error   { background: var(--bad-bg);  border-color: var(--bad-border);  color: var(--bad-text); }
+    .msg-warning { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
+    .msg-info, .msg-debug { background: var(--info-bg); border-color: var(--info-border); color: var(--info-text); }
+    .msg-close {
+      flex: none;
+      background: none;
+      border: 0;
+      padding: .1rem .25rem;
+      color: inherit;
+      opacity: .55;
+      cursor: pointer;
+      font: inherit;
+      line-height: 1;
     }
+    .msg-close:hover { opacity: 1; }
 
-    /* ---- agent enrollments (dashboard) ---- */
-    .shop-card { margin-bottom: 1.25rem; }
-    .shop-head {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .5rem 1rem;
-      align-items: flex-start;
-      justify-content: space-between;
-      margin-bottom: 1.25rem;
-    }
-    .shop-card h3 { font-size: 1rem; color: var(--muted); margin-bottom: .6rem; }
-    .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-    .actions form { margin: 0; }
-    .btn-small { padding: .25rem .7rem; font-size: .85rem; }
-    .badge-wait { background: #fdf1dc; color: #8a5b12; }
-    .new-agent { margin: 1.25rem 0 0; }
-    .new-agent .actions input[type="text"] { flex: 1 1 15rem; width: auto; }
-
-    /* The one-time token is loud on purpose: nothing can bring it back. */
-    .token-panel { border-color: var(--accent); margin-bottom: 1.5rem; }
-    .token-box {
-      margin: 0 0 1rem;
-      padding: .8rem 1rem;
-      background: var(--bg);
-      border: 1px dashed var(--border);
-      border-radius: var(--radius);
-      font-family: Consolas, "Courier New", monospace;
-      font-size: .95rem;
-      white-space: pre-wrap;
-      word-break: break-all;
-      user-select: all;
-    }
-
-    /* Shown wherever a page ends with "go check your inbox". Deliberately
-       calmer than an error box: nothing has gone wrong yet. */
+    /* ============================================================= notes */
     .support-note {
       margin: 1.25rem 0 0;
-      padding: .9rem 1rem;
+      padding: .9rem 1.1rem;
       border: 1px solid var(--border);
       border-inline-start: 3px solid var(--accent);
       border-radius: var(--radius);
-      background: var(--bg);
+      background: var(--surface-2);
       font-size: .92rem;
     }
     .support-note p { margin: 0; color: var(--muted); }
     .support-note p + p { margin-top: .35rem; }
     .support-note-title { font-weight: 700; color: var(--text) !important; }
 
-    /* ---- self-service shop creation (dashboard empty state) ---- */
-    .shop-form { margin: 1.5rem auto 0; max-width: 26rem; text-align: start; }
-    .shop-form .subdomain-preview {
-      display: flex;
-      align-items: center;
-      gap: .35rem;
-      direction: ltr;
+    .empty { text-align: center; padding-block: 1.25rem; }
+
+    /* ====================================================== code / token */
+    .token-box {
+      margin: 0 0 1rem;
+      padding: .85rem 1rem;
+      background: var(--surface-2);
+      border: 1px dashed var(--border-strong);
+      border-radius: var(--radius);
       font-family: Consolas, "Courier New", monospace;
-      font-size: .85rem;
-      color: var(--muted);
-      margin-top: .3rem;
-    }
-    .fallback-note {
-      margin-top: 1.5rem;
-      padding-top: 1.25rem;
-      border-top: 1px solid var(--border);
+      font-size: .95rem;
+      white-space: pre-wrap;
+      word-break: break-all;
+      user-select: all;
+      color: var(--text);
     }
 
-    /* allauth's own pages render straight into <main> with no markup of ours
-       to hang a card on, so the card is the main element itself. */
+    /* ============================================================ footer */
+    .site-foot {
+      flex: none;
+      /* Pushes the footer to the bottom on short pages. Needed because
+         main.auth-page overrides main.wrap's flex-grow, so on allauth's own
+         pages nothing else would fill the gap and the footer would ride up
+         under the card. */
+      margin-top: auto;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      padding-block: 1.6rem;
+      font-size: .88rem;
+      color: var(--muted);
+    }
+    .site-foot .inner {
+      max-width: 1060px;
+      margin-inline: auto;
+      padding-inline: 1.25rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem 1.5rem;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* ======================================================= allauth pages */
+    /* allauth's own templates render straight into <main> with no markup of
+       ours to hang a card on, so the card is the main element itself. */
     main.auth-page {
-      max-width: 480px;
+      max-width: 30rem;
       background: var(--surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 1.5rem;
-      margin-block: 2rem 3rem;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      padding: 1.75rem;
+      margin-block: 2.5rem 3rem;
+      flex: 0 0 auto;
     }
-    main.auth-page h1 { font-size: 1.35rem; }
+    main.auth-page h1 { font-size: 1.32rem; }
     main.auth-page button, main.auth-page input[type="submit"] {
       font: inherit;
       font-weight: 600;
-      padding: .5rem 1.1rem;
+      padding: .55rem 1.15rem;
       border-radius: var(--radius);
       border: 1px solid transparent;
       cursor: pointer;
       background: var(--accent);
-      color: #fff;
+      color: var(--accent-contrast);
     }
     main.auth-page button:hover, main.auth-page input[type="submit"]:hover {
-      background: var(--accent-dark);
+      background: var(--accent-hover);
+    }
+
+    @media (max-width: 560px) {
+      body { font-size: 15.5px; }
+      .card { padding: 1.15rem; border-radius: var(--radius); }
+      .user-email { display: none; }
+      h1 { font-size: 1.35rem; }
     }
   </style>
   {% block extra_head %}{% endblock %}
 </head>
 <body>
+  <a class="skip-link" href="#main">تخطَّ إلى المحتوى</a>
+
   <header class="site-header">
     <div class="wrap header-inner">
-      <a class="brand" href="{% url 'home' %}">منصة سهل سوفت</a>
-      {% if user.is_authenticated %}
-        <div class="user-box">
-          <span class="user-email">{{ user.email }}</span>
+      <a class="brand" href="{% url 'home' %}">
+        {% include "snippets/logo.html" %}
+        <span>منصة سهل سوفت</span>
+      </a>
+
+      <div class="header-tools">
+        {% if user.is_authenticated %}
+          <span class="user-email" title="{{ user.email }}">{{ user.email }}</span>
+        {% else %}
+          {% comment %}
+            Empty by default: the login page has no business linking to itself;
+            only the landing page fills this in. Block comment and not the hash
+            form because Django's comment regex is not DOTALL -- a multi-line
+            hash comment inside a rendered block comes out as visible page text.
+          {% endcomment %}
+          {% block header_nav %}{% endblock %}
+        {% endif %}
+
+        <button type="button" class="icon-btn theme-toggle" data-theme-toggle
+                aria-label="تبديل بين المظهر الفاتح والداكن" title="تبديل المظهر">
+          <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="4.2"/>
+            <path d="M12 2v2.5M12 19.5V22M4.2 4.2l1.8 1.8M18 18l1.8 1.8M2 12h2.5M19.5 12H22M4.2 19.8L6 18M18 6l1.8-1.8"/>
+          </svg>
+          <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M20.5 14.3A8.5 8.5 0 1 1 9.7 3.5a7 7 0 0 0 10.8 10.8z"/>
+          </svg>
+        </button>
+
+        {% if user.is_authenticated %}
           {# ACCOUNT_LOGOUT_ON_GET is False, so logging out must be a POST. #}
           <form method="post" action="{% url 'account_logout' %}">
             {% csrf_token %}
-            <button type="submit" class="btn btn-ghost">تسجيل الخروج</button>
+            <button type="submit" class="btn btn-ghost btn-small">تسجيل الخروج</button>
           </form>
-        </div>
-      {% else %}
-        {% comment %}
-          Empty by default: the login page has no business linking to itself;
-          only the landing page fills this in. Block comment and not the hash
-          form because Django's comment regex is not DOTALL -- a multi-line
-          hash comment inside a rendered block comes out as visible page text.
-        {% endcomment %}
-        {% block header_nav %}{% endblock %}
-      {% endif %}
+        {% endif %}
+      </div>
     </div>
   </header>
 
-  <main class="wrap {% block main_class %}{% endblock %}">
+  <main id="main" class="wrap {% block main_class %}{% endblock %}">
     {% if messages %}
-      <ul class="messages">
-        {% for message in messages %}<li>{{ message }}</li>{% endfor %}
+      {# polite, not assertive: these announce after the page settles rather
+         than interrupting whatever a screen reader is already saying. #}
+      <ul class="messages" role="status" aria-live="polite">
+        {% for message in messages %}
+          <li class="msg msg-{{ message.level_tag }}">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              {% if message.level_tag == "success" %}
+                <circle cx="12" cy="12" r="9"/><path d="M8.5 12.4l2.4 2.4 4.6-5"/>
+              {% elif message.level_tag == "error" %}
+                <circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.2M12 16.3v.2"/>
+              {% elif message.level_tag == "warning" %}
+                <path d="M10.3 3.9L2.5 17.4A2 2 0 0 0 4.2 20.4h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9.2v4M12 16.6v.2"/>
+              {% else %}
+                <circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.2"/>
+              {% endif %}
+            </svg>
+            <div class="msg-body">{{ message }}</div>
+            <button type="button" class="msg-close" data-msg-close aria-label="إخفاء هذه الرسالة">&times;</button>
+          </li>
+        {% endfor %}
       </ul>
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+
+  {% block footer %}
+    <footer class="site-foot">
+      <div class="inner">
+        <span>منصة سهل سوفت — ByteBalance Tech</span>
+        <span>
+          للاستفسار والدعم:
+          <a href="mailto:info@bytebalancetech.com" dir="ltr">info@bytebalancetech.com</a>
+        </span>
+      </div>
+    </footer>
+  {% endblock %}
+
+  <script>
+    (function () {
+      // --- theme toggle -------------------------------------------------
+      var root = document.documentElement;
+      function currentTheme() {
+        return root.getAttribute("data-theme")
+          || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      }
+      document.querySelectorAll("[data-theme-toggle]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var next = currentTheme() === "dark" ? "light" : "dark";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("theme", next); } catch (e) { /* nothing to do */ }
+        });
+      });
+
+      // Follow the system while the visitor has never expressed a preference.
+      try {
+        var media = window.matchMedia("(prefers-color-scheme: dark)");
+        var onChange = function (e) {
+          if (!localStorage.getItem("theme")) {
+            root.setAttribute("data-theme", e.matches ? "dark" : "light");
+          }
+        };
+        // addListener is the old spelling, still the only one on older WebKit.
+        if (media.addEventListener) { media.addEventListener("change", onChange); }
+        else if (media.addListener) { media.addListener(onChange); }
+      } catch (e) { /* nothing to do */ }
+
+      // --- dismissible messages ----------------------------------------
+      document.querySelectorAll("[data-msg-close]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var msg = btn.closest(".msg");
+          if (msg) { msg.remove(); }
+        });
+      });
+
+      // --- copy to clipboard -------------------------------------------
+      // Any element with data-copy="<selector>" copies that node's text. The
+      // execCommand branch is not vestigial: navigator.clipboard is undefined
+      // on plain HTTP, which is exactly how this runs on a laptop in dev.
+      document.querySelectorAll("[data-copy]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var target = document.querySelector(btn.getAttribute("data-copy"));
+          if (!target) { return; }
+          var text = target.textContent.trim();
+          var done = function () {
+            var was = btn.getAttribute("data-label-done") || "تم النسخ";
+            var original = btn.textContent;
+            btn.textContent = was;
+            setTimeout(function () { btn.textContent = original; }, 1600);
+          };
+          if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(done, function () {});
+            return;
+          }
+          var box = document.createElement("textarea");
+          box.value = text;
+          box.setAttribute("readonly", "");
+          box.style.position = "fixed";
+          box.style.opacity = "0";
+          document.body.appendChild(box);
+          box.select();
+          try { document.execCommand("copy"); done(); } catch (e) { /* nothing to do */ }
+          document.body.removeChild(box);
+        });
+      });
+    })();
+  </script>
   {% block extra_body %}{% endblock %}
 </body>
 </html>

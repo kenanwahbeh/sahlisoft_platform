@@ -133,6 +133,10 @@ def _shop_rows(user):
                         "status_label": STATUS_LABELS_AR.get(
                             enrollment.status, enrollment.get_status_display()
                         ),
+                        # Reachability and permission are separate facts and the
+                        # dashboard shows both: a stopped agent still answers,
+                        # and an approved one whose PC is off does not.
+                        "is_online": enrollment.is_online,
                         # Mirrors teardown_and_delete()'s own guard, so the
                         # button is absent rather than merely rejected.
                         "can_delete": enrollment.status
@@ -152,6 +156,35 @@ def _shop_rows(user):
     return rows
 
 
+def _overview(rows) -> dict:
+    """The four numbers worth putting above the fold, from rows already built.
+
+    Deliberately derived from ``_shop_rows`` rather than re-queried: the tiles
+    and the table below them must never disagree, and the cheapest way to
+    guarantee that is to count the same objects the table renders.
+
+    ``pending`` is the one that earns its place -- it is the only number here
+    that names something the owner has to *do*, and an agent sitting unapproved
+    is otherwise invisible until you scroll to its row.
+    """
+    agents = [agent for row in rows for agent in row["agents"]]
+    return {
+        "shops": len(rows),
+        "agents": len(agents),
+        "online": sum(1 for agent in agents if agent["is_online"]),
+        "pending": sum(
+            1
+            for agent in agents
+            if agent["obj"].status == AgentEnrollment.Status.PENDING
+        ),
+        "inactive": sum(
+            1
+            for agent in agents
+            if agent["obj"].status in AgentEnrollment.DELETABLE_STATUSES
+        ),
+    }
+
+
 def _owned_shop_count(user) -> int:
     return Membership.objects.filter(user=user, role=Membership.Role.OWNER).count()
 
@@ -163,12 +196,16 @@ def _dashboard_context(user, shop_form=None, **extra):
     the empty state's shop form has to be built here or it quietly vanishes
     from the other two.
     """
+    rows = _shop_rows(user)
     context = {
-        "shops": _shop_rows(user),
+        "shops": rows,
+        "overview": _overview(rows),
         "shop_form": shop_form if shop_form is not None else ShopCreateForm(user=user),
         "platform_domain": settings.PLATFORM_DOMAIN,
         "support_email": SUPPORT_EMAIL,
         "agent_released": AGENT_RELEASED,
+        "max_owned_shops": MAX_OWNED_SHOPS,
+        "can_add_shop": _owned_shop_count(user) < MAX_OWNED_SHOPS,
     }
     context.update(extra)
     return context
@@ -644,4 +681,14 @@ def home(request):
         return redirect("dashboard")
     if getattr(request, "tenant", None) is not None:
         return redirect("account_login")
-    return render(request, "landing.html")
+    # The page shows a sample shop address, and a hardcoded one goes stale the
+    # day the zone changes -- it would then be advertising a domain we do not
+    # serve, on the one page whose whole job is to be believed.
+    return render(
+        request,
+        "landing.html",
+        {
+            "platform_domain": settings.PLATFORM_DOMAIN,
+            "support_email": SUPPORT_EMAIL,
+        },
+    )

@@ -1,9 +1,176 @@
 {% extends "base.html" %}
+{% load ar_time %}
 
 {% block title %}المتاجر — منصة سهل سوفت{% endblock %}
 
+{% block extra_head %}
+<style>
+  /* ------------------------------------------------------- page head ---- */
+  .page-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+  .page-head h1 { margin-bottom: .15rem; }
+  .page-head p { margin: 0; }
+
+  /* ----------------------------------------------------------- tiles ---- */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+    gap: .85rem;
+    margin-bottom: 1.75rem;
+  }
+  .tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: .95rem 1.1rem;
+    box-shadow: var(--shadow-sm);
+  }
+  .tile-label {
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .84rem;
+    color: var(--muted);
+    margin-bottom: .25rem;
+  }
+  .tile-label svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+  .tile-value { font-size: 1.65rem; font-weight: 700; line-height: 1.25; }
+  .tile-sub { font-size: .8rem; color: var(--faint); }
+  /* Only the tile naming something to *do* is tinted; if every tile shouted,
+     the one that matters would not. */
+  .tile-act { border-color: var(--warn-border); background: var(--warn-bg); }
+  .tile-act .tile-label, .tile-act .tile-value, .tile-act .tile-sub { color: var(--warn-text); }
+
+  /* ----------------------------------------------------- token panel ---- */
+  .token-panel { border-color: var(--accent); box-shadow: var(--shadow-md); margin-bottom: 1.5rem; }
+  .token-panel h2 { display: flex; align-items: center; gap: .5rem; }
+  .token-panel h2 svg { width: 20px; height: 20px; flex: none; fill: none; stroke: var(--accent); stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+  /* ------------------------------------------------------ shop cards ---- */
+  .shop-card { margin-bottom: 1.25rem; padding: 0; overflow: hidden; }
+  .shop-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1rem;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-2);
+  }
+  .shop-head h2 { margin-bottom: .2rem; }
+  .shop-meta { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .88rem; color: var(--muted); }
+  .shop-body { padding: 1.25rem 1.5rem 1.5rem; }
+  .shop-body > h3 { color: var(--muted); font-size: .9rem; font-weight: 600; margin-bottom: .75rem; }
+
+  .actions { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
+  .actions form { margin: 0; }
+
+  /* --------------------------------------------------- agent identity ---- */
+  .agent-name { font-weight: 600; }
+  .agent-sub {
+    display: block;
+    font-size: .78rem;
+    color: var(--faint);
+    font-family: Consolas, "Courier New", monospace;
+    direction: ltr;
+    text-align: start;
+  }
+
+  /* A light that means "this machine answered a minute ago", next to a badge
+     that means "you allowed it to". Two different facts, two indicators. */
+  .conn { display: inline-flex; align-items: center; gap: .45rem; white-space: nowrap; }
+  .dot { width: .55rem; height: .55rem; border-radius: 50%; flex: none; background: var(--faint); }
+  .dot-live { background: #2fa360; box-shadow: 0 0 0 3px color-mix(in srgb, #2fa360 22%, transparent); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .conn-live { color: var(--ok-text); font-weight: 600; }
+
+  /* --------------------------------------------------- new-agent form ---- */
+  .new-agent {
+    margin: 1.5rem 0 0;
+    padding-top: 1.25rem;
+    border-top: 1px dashed var(--border);
+  }
+  .new-agent .actions input[type="text"] { flex: 1 1 15rem; width: auto; }
+
+  /* ------------------------------------------------------ empty state ---- */
+  .shop-form { margin: 1.5rem auto 0; max-width: 26rem; text-align: start; }
+  .shop-form .subdomain-preview {
+    display: flex;
+    align-items: center;
+    gap: .35rem;
+    direction: ltr;
+    font-family: Consolas, "Courier New", monospace;
+    font-size: .85rem;
+    color: var(--muted);
+    margin-top: .3rem;
+  }
+  .fallback-note { margin-top: 1.5rem; padding-top: 1.25rem; border-top: 1px solid var(--border); }
+  .empty-art { width: 54px; height: 54px; margin-bottom: .5rem; fill: none; stroke: var(--border-strong); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .no-agents {
+    text-align: center;
+    padding: 1.5rem 1rem;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--muted);
+    font-size: .93rem;
+  }
+
+  /* -------------------------------------------------------- responsive ---- */
+  /* Below this the agent table stops being a table. A five-column grid on a
+     360px phone either scrolls sideways -- which hides the action buttons,
+     the whole point of the row -- or squeezes every cell to two words. Each
+     row becomes its own card instead, with the <th> text carried down as a
+     label so no cell loses its meaning. */
+  @media (max-width: 760px) {
+    .shop-head, .shop-body { padding-inline: 1.1rem; }
+    .agents thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .agents, .agents tbody, .agents tr, .agents td { display: block; width: 100%; }
+    .agents tr {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: .35rem .9rem;
+      margin-bottom: .75rem;
+      background: var(--surface);
+    }
+    .agents tr:hover { background: var(--surface); }
+    .agents td {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding: .5rem 0;
+    }
+    .agents tr td:last-child { border-bottom: none; }
+    .agents td::before {
+      content: attr(data-label);
+      flex: none;
+      font-size: .8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .agents td.cell-actions { display: block; }
+    .agents td.cell-actions::before { display: block; margin-bottom: .4rem; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-  <h1>متاجري</h1>
+  <div class="page-head">
+    <div>
+      <h1>متاجري</h1>
+      {% if shops %}
+        <p class="muted">هذه هي المتاجر المصرّح لك بالاطّلاع على بياناتها.</p>
+      {% endif %}
+    </div>
+  </div>
 
   {% if issued %}
     {% comment %}
@@ -11,7 +178,12 @@
       plaintext token exists anywhere, including on our side.
     {% endcomment %}
     <div class="card token-panel">
-      <h2>رمز الربط الجديد — انسخه الآن</h2>
+      <h2>
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>
+        </svg>
+        رمز الربط الجديد — انسخه الآن
+      </h2>
       <p class="muted">
         هذا الرمز خاص بالمتجر <strong>{{ issued.tenant.name }}</strong>،
         وهو يظهر <strong>مرة واحدة فقط</strong>. المنصة لا تحتفظ بنسخة منه،
@@ -22,16 +194,19 @@
           فإن أغلقت هذه الصفحة قبل نسخه فلن تتمكن من استرجاعه، وسيلزمك إنشاء رمز جديد.
         {% endif %}
       </p>
-      <pre class="token-box" dir="ltr">{{ issued.token }}</pre>
+      <pre class="token-box" id="issued-token" dir="ltr">{{ issued.token }}</pre>
       <div class="actions">
+        <button type="button" class="btn" data-copy="#issued-token" data-label-done="✓ تم النسخ">
+          نسخ الرمز
+        </button>
         <form method="post" action="{% url 'enrollment_config' issued.tenant.slug issued.enrollment.pk %}">
           {% csrf_token %}
           <input type="hidden" name="token" value="{{ issued.token }}">
-          <button type="submit" class="btn">تنزيل ملف الإعداد (.env)</button>
+          <button type="submit" class="btn btn-ghost">تنزيل ملف الإعداد (.env)</button>
         </form>
         <a class="btn btn-ghost" href="{% url 'dashboard' %}">تم، أخفِ الرمز</a>
       </div>
-      <p class="muted" style="margin-bottom:0;">
+      <p class="muted" style="margin:1rem 0 0;">
         {% if agent_released %}
           احفظ ملف الإعداد بجانب برنامج الوكيل على جهاز نقطة البيع. بعد تشغيله سيظهر
           الجهاز هنا بحالة «بانتظار الموافقة»، ولن يُرسل أي بيانات قبل أن تعتمده يدوياً
@@ -46,13 +221,53 @@
   {% endif %}
 
   {% if shops %}
+    <div class="tiles">
+      <div class="tile">
+        <div class="tile-label">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9.5L5 4h14l2 5.5"/><path d="M4 9.5h16V20H4z"/><path d="M9 20v-5h6v5"/></svg>
+          المتاجر
+        </div>
+        <div class="tile-value">{{ overview.shops }}</div>
+        <div class="tile-sub">من أصل {{ max_owned_shops }} مسموح بها</div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-label">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5a9.5 9.5 0 0 1 14 0"/><path d="M8.5 15.8a5 5 0 0 1 7 0"/><path d="M12 19h.01"/></svg>
+          أجهزة متصلة
+        </div>
+        <div class="tile-value">{{ overview.online }}</div>
+        <div class="tile-sub">من أصل {{ overview.agents }} جهاز مسجّل</div>
+      </div>
+
+      <div class="tile {% if overview.pending %}tile-act{% endif %}">
+        <div class="tile-label">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5V12l3 1.8"/></svg>
+          بانتظار موافقتك
+        </div>
+        <div class="tile-value">{{ overview.pending }}</div>
+        <div class="tile-sub">
+          {% if overview.pending %}لن تُرسل بياناتها قبل اعتمادها{% else %}لا شيء ينتظر إجراءً{% endif %}
+        </div>
+      </div>
+
+      <div class="tile">
+        <div class="tile-label">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5h5v5h-5z"/></svg>
+          موقوفة أو ملغاة
+        </div>
+        <div class="tile-value">{{ overview.inactive }}</div>
+        <div class="tile-sub">لا ترسل أي بيانات</div>
+      </div>
+    </div>
+
     {% if not agent_released %}
       {% comment %}
         The tokens and the approval step are finished; the program that uses
         them is not. Saying so here is the difference between "not released
         yet" and "this feature is broken".
       {% endcomment %}
-      <div class="support-note" style="margin-bottom:1.5rem;">
+      <div class="support-note" style="margin: 0 0 1.5rem;">
         <p class="support-note-title">برنامج الوكيل قيد التجهيز</p>
         <p>
           برنامج الوكيل — وهو البرنامج الصغير الذي يُثبَّت على جهاز المتجر ليقرأ بيانات
@@ -75,17 +290,15 @@
       </div>
     {% endif %}
 
-    <p class="muted">هذه هي المتاجر المصرّح لك بالاطّلاع على بياناتها.</p>
-
     {% for shop in shops %}
       <section class="card shop-card">
         <div class="shop-head">
           <div>
             <h2>{{ shop.tenant.name }}</h2>
-            <p class="muted" style="margin:0;">
-              العنوان: <a href="{{ shop.url }}" dir="ltr">{{ shop.host }}</a>
-              · دورك: {{ shop.role }}
-            </p>
+            <div class="shop-meta">
+              <span><a href="{{ shop.url }}" dir="ltr">{{ shop.host }}</a></span>
+              <span>دورك: {{ shop.role }}</span>
+            </div>
           </div>
           {% if shop.tenant.is_active %}
             <span class="badge badge-ok">نشط</span>
@@ -94,16 +307,16 @@
           {% endif %}
         </div>
 
-        <h3>عملاء الربط (الأجهزة المتصلة)</h3>
-        {% if shop.agents %}
-          <div class="table-scroll">
-            <table>
+        <div class="shop-body">
+          <h3>عملاء الربط (الأجهزة المتصلة)</h3>
+
+          {% if shop.agents %}
+            <table class="agents">
               <thead>
                 <tr>
                   <th>الجهاز</th>
-                  <th>الرمز</th>
                   <th>الحالة</th>
-                  <th>آخر اتصال</th>
+                  <th>الاتصال</th>
                   <th>تاريخ الإنشاء</th>
                   {% if shop.can_manage %}<th>إجراءات</th>{% endif %}
                 </tr>
@@ -111,27 +324,46 @@
               <tbody>
                 {% for agent in shop.agents %}
                   <tr>
-                    <td>{{ agent.obj.label|default:"— بلا اسم —" }}</td>
-                    <td dir="ltr">{{ agent.obj.masked_token }}</td>
-                    <td>
+                    <td data-label="الجهاز">
+                      <span>
+                        <span class="agent-name">{{ agent.obj.label|default:"— بلا اسم —" }}</span>
+                        <span class="agent-sub">{{ agent.obj.masked_token }}{% if agent.obj.hostname %} · {{ agent.obj.hostname }}{% endif %}</span>
+                      </span>
+                    </td>
+
+                    <td data-label="الحالة">
                       {% if agent.obj.status == "active" %}
                         <span class="badge badge-ok">{{ agent.status_label }}</span>
                       {% elif agent.obj.status == "pending" %}
                         <span class="badge badge-wait">{{ agent.status_label }}</span>
+                      {% elif agent.obj.status == "stopped" %}
+                        <span class="badge badge-idle">{{ agent.status_label }}</span>
                       {% else %}
                         <span class="badge badge-off">{{ agent.status_label }}</span>
                       {% endif %}
                     </td>
-                    <td>
-                      {% if agent.obj.last_seen_at %}
-                        {{ agent.obj.last_seen_at|date:"Y-m-d H:i" }}
+
+                    {% comment %}
+                      Reachability, not permission -- the badge next door already
+                      says whether this agent is allowed to send. A stopped agent
+                      that is plainly answering shows as متصل on purpose.
+                    {% endcomment %}
+                    <td data-label="الاتصال">
+                      {% if agent.is_online %}
+                        <span class="conn conn-live"><span class="dot dot-live"></span>متصل الآن</span>
+                      {% elif agent.obj.last_seen_at %}
+                        <span class="conn" title="{{ agent.obj.last_seen_at|date:'Y-m-d H:i' }}">
+                          <span class="dot"></span>{{ agent.obj.last_seen_at|ar_timesince }}
+                        </span>
                       {% else %}
-                        <span class="muted">لم يتصل بعد</span>
+                        <span class="conn muted"><span class="dot"></span>لم يتصل بعد</span>
                       {% endif %}
                     </td>
-                    <td>{{ agent.obj.created_at|date:"Y-m-d" }}</td>
+
+                    <td data-label="تاريخ الإنشاء">{{ agent.obj.created_at|date:"Y-m-d" }}</td>
+
                     {% if shop.can_manage %}
-                      <td>
+                      <td data-label="إجراءات" class="cell-actions">
                         <div class="actions">
                           {% if agent.obj.status == "pending" %}
                             <form method="post" action="{% url 'enrollment_approve' shop.tenant.slug agent.obj.pk %}">
@@ -151,9 +383,10 @@
                             </form>
                           {% endif %}
                           {% if agent.obj.status != "revoked" %}
-                            <form method="post" action="{% url 'enrollment_revoke' shop.tenant.slug agent.obj.pk %}">
+                            <form method="post" action="{% url 'enrollment_revoke' shop.tenant.slug agent.obj.pk %}"
+                                  onsubmit="return confirm('سيُلغى هذا العميل نهائياً ولن يُقبل منه أي اتصال. هل أنت متأكد؟');">
                               {% csrf_token %}
-                              <button type="submit" class="btn btn-small btn-ghost">إلغاء</button>
+                              <button type="submit" class="btn btn-small btn-ghost btn-danger">إلغاء</button>
                             </form>
                           {% endif %}
                           {% comment %}
@@ -166,7 +399,7 @@
                             <form method="post" action="{% url 'enrollment_delete' shop.tenant.slug agent.obj.pk %}"
                                   onsubmit="return confirm('سيُحذف هذا العميل ونفقه نهائياً. هل أنت متأكد؟');">
                               {% csrf_token %}
-                              <button type="submit" class="btn btn-small btn-ghost">حذف</button>
+                              <button type="submit" class="btn btn-small btn-ghost btn-danger">حذف</button>
                             </form>
                           {% endif %}
                           {% comment %}
@@ -189,33 +422,43 @@
                 {% endfor %}
               </tbody>
             </table>
-          </div>
-        {% else %}
-          <p class="muted">لا يوجد أي عميل مرتبط بهذا المتجر بعد.</p>
-        {% endif %}
+          {% else %}
+            <p class="no-agents">لا يوجد أي عميل مرتبط بهذا المتجر بعد.</p>
+          {% endif %}
 
-        {% if shop.can_manage %}
-          <form method="post" action="{% url 'enrollment_create' shop.tenant.slug %}" class="new-agent">
-            {% csrf_token %}
-            <label for="label-{{ shop.tenant.slug }}">اسم الجهاز (اختياري)</label>
-            <div class="actions">
-              <input type="text" id="label-{{ shop.tenant.slug }}" name="label"
-                     maxlength="120" placeholder="مثال: جهاز الكاشير الرئيسي">
-              <button type="submit" class="btn">
-                {% if agent_released %}إنشاء رمز ربط جديد{% else %}تجهيز رمز ربط مسبقاً{% endif %}
-              </button>
-            </div>
-            {% if not agent_released %}
-              <p class="helptext" style="margin-top:.4rem;">
-                يمكنك تجهيز رمز الربط من الآن، لكنه لن يعمل قبل صدور برنامج الوكيل.
-              </p>
-            {% endif %}
-          </form>
-        {% endif %}
+          {% if shop.can_manage %}
+            <form method="post" action="{% url 'enrollment_create' shop.tenant.slug %}" class="new-agent">
+              {% csrf_token %}
+              <label for="label-{{ shop.tenant.slug }}">إضافة جهاز — اسم الجهاز (اختياري)</label>
+              <div class="actions">
+                <input type="text" id="label-{{ shop.tenant.slug }}" name="label"
+                       maxlength="120" placeholder="مثال: جهاز الكاشير الرئيسي">
+                <button type="submit" class="btn">
+                  {% if agent_released %}إنشاء رمز ربط جديد{% else %}تجهيز رمز ربط مسبقاً{% endif %}
+                </button>
+              </div>
+              {% if not agent_released %}
+                <p class="helptext" style="margin-top:.4rem;">
+                  يمكنك تجهيز رمز الربط من الآن، لكنه لن يعمل قبل صدور برنامج الوكيل.
+                </p>
+              {% endif %}
+            </form>
+          {% endif %}
+        </div>
       </section>
     {% endfor %}
+
+    {% if can_add_shop and not shop_form.errors %}
+      <details class="card" style="margin-top:1.5rem;">
+        <summary style="cursor:pointer; font-weight:600;">إضافة متجر آخر</summary>
+        {% include "snippets/shop_form.html" %}
+      </details>
+    {% endif %}
   {% else %}
     <div class="card empty">
+      <svg class="empty-art" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 9.5L5 4h14l2 5.5"/><path d="M4 9.5h16V20H4z"/><path d="M9 20v-5h6v5"/>
+      </svg>
       <h2>لا يوجد متجر مرتبط بحسابك بعد</h2>
       <p class="muted">
         حسابك <strong>{{ user.email }}</strong> غير مرتبط حالياً بأي متجر، لذلك لا توجد

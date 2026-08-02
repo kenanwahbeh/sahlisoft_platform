@@ -1,0 +1,20 @@
+{% comment %}
+The brand mark: three rising bars, which is the promise of the product in one
+glyph -- your shop's numbers, going up, readable at a glance. Inline SVG rather
+than a file so it inherits currentColor and costs no request, and the same
+shape is re-encoded as the favicon in base.html; change one and change both.
+{% endcomment %}
+<svg class="logo-mark" viewBox="0 0 32 32" width="28" height="28" role="img" aria-label="سهل سوفت">
+  <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>
+  <g fill="#fff">
+    <rect x="8" y="18" width="4" height="7" rx="1.5" opacity=".72"/>
+    <rect x="14" y="13" width="4" height="12" rx="1.5" opacity=".86"/>
+    <rect x="20" y="7" width="4" height="18" rx="1.5"/>
+  </g>
+  <defs>
+    <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2a8fae"/>
+      <stop offset="1" stop-color="#14586f"/>
+    </linearGradient>
+  </defs>
+</svg>
