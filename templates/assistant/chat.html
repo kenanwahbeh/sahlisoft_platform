@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+
+{% block title %}المساعد الذكي — {{ tenant.name }}{% endblock %}
+
+{% block extra_head %}
+<style>
+  .chat-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .6rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+  }
+  .chat-head h1 { margin-bottom: .1rem; font-size: 1.35rem; }
+  .chat-head .muted { margin: 0; }
+
+  .chat { padding: 0; overflow: hidden; }
+  .thread {
+    display: flex;
+    flex-direction: column;
+    gap: 1.1rem;
+    padding: 1.5rem;
+    min-height: 22rem;
+    max-height: 62vh;
+    overflow-y: auto;
+  }
+
+  /* The owner's own turns sit at the inline end -- the left, in an RTL page. */
+  .turn-user {
+    margin-inline-start: auto;
+    max-width: 80%;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    padding: .7rem 1rem;
+    border-radius: var(--radius-lg);
+    border-end-end-radius: var(--radius-sm);
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .turn-bot { max-width: 92%; }
+  .turn-bot .body {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    padding: .85rem 1.1rem;
+    border-radius: var(--radius-lg);
+    border-end-start-radius: var(--radius-sm);
+  }
+  .turn-bot .body > p:last-child { margin-bottom: 0; }
+  .turn-bot code {
+    font-family: Consolas, "Courier New", monospace;
+    font-size: .88em;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: .05rem .3rem;
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+  .md-table { overflow-x: auto; margin: .75rem 0; }
+  .md-table table { font-size: .92rem; }
+  .md-table th, .md-table td { padding: .45rem .6rem; white-space: nowrap; }
+
+  /* What ran against the shop's data. Collapsed, but never hidden -- the
+     owner is entitled to see the exact query that produced a number. */
+  .ran { margin-bottom: .5rem; }
+  .ran summary {
+    cursor: pointer;
+    font-size: .82rem;
+    color: var(--muted);
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    list-style: none;
+  }
+  .ran summary::-webkit-details-marker { display: none; }
+  .ran summary svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .ran summary:hover { color: var(--accent); }
+  .ran pre {
+    margin: .5rem 0 0;
+    padding: .7rem .85rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: Consolas, "Courier New", monospace;
+    font-size: .8rem;
+    direction: ltr;
+    text-align: left;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--muted);
+  }
+
+  .working {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    color: var(--muted);
+    font-size: .92rem;
+  }
+  .spinner {
+    width: 1rem;
+    height: 1rem;
+    flex: none;
+    border: 2px solid var(--border-strong);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .composer {
+    display: flex;
+    gap: .6rem;
+    align-items: flex-end;
+    padding: 1rem 1.5rem 1.25rem;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    margin: 0;
+  }
+  .composer textarea {
+    flex: 1;
+    resize: none;
+    min-height: 2.75rem;
+    max-height: 10rem;
+    line-height: 1.5;
+  }
+  .composer button { flex: none; height: 2.75rem; }
+
+  .starters { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+  .starter {
+    font: inherit;
+    font-size: .88rem;
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: .35rem .9rem;
+  }
+  .starter:hover { border-color: var(--accent); color: var(--accent); }
+
+  .intro { text-align: center; padding: 2rem 1rem; }
+  .intro svg { width: 40px; height: 40px; fill: none; stroke: var(--border-strong); stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+
+  @media (max-width: 560px) {
+    .thread, .composer { padding-inline: 1rem; }
+    .turn-user, .turn-bot { max-width: 100%; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <div class="chat-head">
+    <div>
+      <h1>المساعد الذكي</h1>
+      <p class="muted">اسأل عن بيانات متجر «{{ tenant.name }}» بالعربية، ويقرأها لك مباشرةً.</p>
+    </div>
+    <div class="actions">
+      <a class="btn btn-ghost btn-small" href="{% url 'dashboard' %}">لوحة التحكم</a>
+      <form method="post" action="{% url 'assistant_new' tenant.slug %}">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-small">محادثة جديدة</button>
+      </form>
+    </div>
+  </div>
+
+  <section class="card chat">
+    <div class="thread" id="thread">
+      {% if not rows %}
+        <div class="intro">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-5.2A8 8 0 1 1 21 12z"/>
+          </svg>
+          <h2 style="font-size:1.05rem; margin-top:.6rem;">اسألني عن متجرك</h2>
+          <p class="muted" style="max-width:30rem; margin-inline:auto;">
+            أقرأ بيانات متجرك للقراءة فقط، ولا أعدّل فيها شيئاً. اكتب سؤالك بالعربية
+            كما تسأل محاسبك.
+          </p>
+        </div>
+      {% endif %}
+
+      {% for row in rows %}
+        {% if row.role == "user" %}
+          <div class="turn-user">{{ row.text }}</div>
+        {% else %}
+          <div class="turn-bot">
+            {% if row.tools %}
+              <details class="ran">
+                <summary>
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <ellipse cx="12" cy="6" rx="8" ry="3"/><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"/><path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+                  </svg>
+                  ما نفّذه المساعد على بياناتك ({{ row.tools|length }})
+                </summary>
+                {% for tool in row.tools %}
+                  <pre>{% if tool.sql %}{{ tool.sql }}{% else %}{{ tool.name }} {{ tool.input }}{% endif %}</pre>
+                {% endfor %}
+              </details>
+            {% endif %}
+            {% if row.html %}<div class="body">{{ row.html }}</div>{% endif %}
+          </div>
+        {% endif %}
+      {% endfor %}
+
+      {% if run %}
+        <div class="turn-bot" id="working">
+          <div class="working">
+            <span class="spinner"></span>
+            <span id="activity">{{ run.activity|default:"يعمل…" }}</span>
+          </div>
+        </div>
+      {% elif failed_run %}
+        {# The run is over, so its error has nowhere else to appear. #}
+        <div class="turn-bot">
+          <div class="msg msg-error" style="margin:0;">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.2M12 16.3v.2"/>
+            </svg>
+            <div class="msg-body">{{ failed_run.error|default:"تعذّر إكمال الطلب." }}</div>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+
+    <form method="post" action="{% url 'assistant_ask' tenant.slug conversation.pk %}"
+          class="composer" id="composer">
+      {% csrf_token %}
+      <textarea name="question" id="question" rows="1" maxlength="4000"
+                placeholder="مثال: كم بلغت مبيعاتي هذا الشهر؟"
+                {% if run %}disabled{% endif %}
+                aria-label="سؤالك"></textarea>
+      <button type="submit" class="btn" {% if run %}disabled{% endif %}>إرسال</button>
+    </form>
+  </section>
+
+  {% if not rows and not run %}
+    <div class="starters">
+      <button type="button" class="starter">كم بلغت مبيعاتي هذا الشهر؟</button>
+      <button type="button" class="starter">ما هي أكثر ١٠ مواد مبيعاً؟</button>
+      <button type="button" class="starter">أعطني كشف حساب لأكبر الزبائن</button>
+      <button type="button" class="starter">ما قيمة المخزون الحالي؟</button>
+    </div>
+  {% endif %}
+{% endblock %}
+
+{% block extra_body %}
+<script>
+  (function () {
+    var thread = document.getElementById("thread");
+    if (thread) { thread.scrollTop = thread.scrollHeight; }
+
+    // Clicking a starter fills the box rather than submitting: the owner
+    // should be able to edit the question before it costs a round trip.
+    var box = document.getElementById("question");
+    document.querySelectorAll(".starter").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        if (!box) { return; }
+        box.value = chip.textContent.trim();
+        box.focus();
+      });
+    });
+
+    // Grow the composer with its content, up to the CSS max-height.
+    if (box) {
+      var grow = function () {
+        box.style.height = "auto";
+        box.style.height = box.scrollHeight + "px";
+      };
+      box.addEventListener("input", grow);
+      // Enter sends, Shift+Enter makes a new line -- the convention everywhere
+      // else the owner types into a chat.
+      box.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          if (box.value.trim()) { document.getElementById("composer").submit(); }
+        }
+      });
+    }
+
+    // While a turn is running, poll for its state and reload once it lands.
+    // The page works without this -- refreshing shows the answer too -- so a
+    // failed fetch is left alone rather than retried into the ground.
+    {% if run %}
+    var poll = function () {
+      fetch("{% url 'assistant_run_status' tenant.slug conversation.pk %}", {
+        headers: {"X-Requested-With": "fetch"},
+        credentials: "same-origin"
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.status === "running") {
+            var label = document.getElementById("activity");
+            if (label && data.activity) { label.textContent = data.activity; }
+            setTimeout(poll, 1500);
+            return;
+          }
+          window.location.reload();
+        })
+        .catch(function () { setTimeout(poll, 4000); });
+    };
+    setTimeout(poll, 1200);
+    {% endif %}
+  })();
+</script>
+{% endblock %}

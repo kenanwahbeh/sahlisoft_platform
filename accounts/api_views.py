@@ -144,7 +144,45 @@ def agent_heartbeat(request):
         AgentCommand.objects.bulk_update(queued, ["status", "sent_at"])
         commands = [c.as_payload() for c in queued]
 
-    return JsonResponse({"status": enrollment.status, "commands": commands})
+    return JsonResponse(
+        {
+            "status": enrollment.status,
+            "commands": commands,
+            "poll_after": _poll_after(enrollment),
+        }
+    )
+
+
+#: Seconds between heartbeats while an agent has nothing outstanding. Low
+#: enough that the first command of an assistant conversation is collected
+#: before the owner gives up on it, high enough to be nothing at all in
+#: request volume -- six calls a minute per shop.
+IDLE_POLL_SECONDS = 10.0
+
+#: Seconds between heartbeats while work is in flight. The assistant makes
+#: several tool calls to answer one question, and at the idle rate a
+#: three-call answer would be half a minute of pure waiting.
+BUSY_POLL_SECONDS = 1.5
+
+
+def _poll_after(enrollment) -> float:
+    """How soon this agent should check in again.
+
+    Derived from the command table rather than from whatever queued the work,
+    so the pacing does not have to know an assistant exists: QUEUED means work
+    is waiting to be collected, SENT means the agent is holding a result we
+    have not been handed yet, and both are reasons to come back quickly.
+
+    Long-polling would cut the latency further, but the platform runs on sync
+    gunicorn workers -- holding a request open per agent would spend the whole
+    worker pool on connections that are doing nothing.
+    """
+    if enrollment.status != AgentEnrollment.Status.ACTIVE:
+        return IDLE_POLL_SECONDS
+    outstanding = enrollment.commands.filter(
+        status__in=(AgentCommand.Status.QUEUED, AgentCommand.Status.SENT)
+    ).exists()
+    return BUSY_POLL_SECONDS if outstanding else IDLE_POLL_SECONDS
 
 
 @csrf_exempt

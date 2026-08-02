@@ -15,5 +15,9 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
     path("api/agent/", include("accounts.api_urls")),
+    # Before accounts.urls only because that one claims "" itself; the two
+    # prefixes (shops/<slug>/assistant/... vs shops/<slug>/agents/...) do not
+    # overlap, so the order is tidiness rather than precedence.
+    path("", include("assistant.urls")),
     path("", include("accounts.urls")),
 ]

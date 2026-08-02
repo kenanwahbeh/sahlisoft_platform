@@ -300,11 +300,18 @@
               <span>دورك: {{ shop.role }}</span>
             </div>
           </div>
-          {% if shop.tenant.is_active %}
-            <span class="badge badge-ok">نشط</span>
-          {% else %}
-            <span class="badge badge-off">موقوف</span>
-          {% endif %}
+          <div class="actions">
+            {% if shop.can_manage %}
+              <a class="btn btn-small" href="{% url 'assistant_chat' shop.tenant.slug %}">
+                اسأل المساعد الذكي
+              </a>
+            {% endif %}
+            {% if shop.tenant.is_active %}
+              <span class="badge badge-ok">نشط</span>
+            {% else %}
+              <span class="badge badge-off">موقوف</span>
+            {% endif %}
+          </div>
         </div>
 
         <div class="shop-body">

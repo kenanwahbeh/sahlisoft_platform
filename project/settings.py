@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "allauth",
     "allauth.account",
     "accounts",
+    "assistant",
 ]
 
 MIDDLEWARE = [
@@ -201,6 +202,15 @@ if not DEBUG:
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = "DENY"
+
+
+# ---------------------------------------------------------------- assistant
+
+# The in-dashboard assistant (assistant/) calls the Claude API on the owner's
+# behalf. Left unset, the feature stays reachable but every run finishes with
+# "not enabled on this platform yet" rather than a traceback -- same shape as
+# RESEND_API_KEY above, so a dev checkout runs without any credential.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
