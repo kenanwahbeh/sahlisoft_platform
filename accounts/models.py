@@ -128,7 +128,17 @@ class AgentEnrollment(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", _("pending")
         ACTIVE = "active", _("active")
+        # A routine, reversible pause -- the shop is closed, the PC is being
+        # replaced, the enrollment is on its way to being deleted. Distinct
+        # from REVOKED on purpose: revoking says a credential is burned and
+        # must never work again, and nothing should be able to undo that by
+        # clicking "start". The agent keeps checking in while stopped, so an
+        # operator can flip it back to active and have it resume by itself.
+        STOPPED = "stopped", _("stopped")
         REVOKED = "revoked", _("revoked")
+
+    #: Deleting is only offered once an agent is demonstrably not in service.
+    DELETABLE_STATUSES = frozenset({Status.STOPPED, Status.REVOKED})
 
     # Enough of the token to tell two credentials apart in a table, far too
     # little to be worth anything to whoever reads that table.
@@ -234,6 +244,36 @@ class AgentEnrollment(models.Model):
     def revoke(self):
         self.status = self.Status.REVOKED
         self.save(update_fields=["status"])
+
+    def stop(self):
+        self.status = self.Status.STOPPED
+        self.save(update_fields=["status"])
+
+    def teardown_and_delete(self):
+        """Delete this enrollment, taking its Cloudflare tunnel with it.
+
+        The only supported way to delete an enrollment. A plain ``.delete()``
+        removes the row and silently strands the tunnel in the Cloudflare
+        account, where nothing afterwards knows it exists -- so the dashboard
+        view and the admin action both come through here, and the admin's stock
+        bulk-delete is switched off (see admin.py).
+
+        Order matters: the tunnel goes first. If it cannot be torn down the row
+        stays exactly as it was, so the operator can retry, rather than the
+        tunnel outliving the only record of it.
+
+        Raises ValueError if the enrollment has not been stopped or revoked,
+        and tunnel_worker.WorkerError if Cloudflare would not let go.
+        """
+        from . import tunnel_worker
+
+        if self.status not in self.DELETABLE_STATUSES:
+            raise ValueError("stop the agent before deleting it")
+
+        if self.cf_tunnel_id:
+            tunnel_worker.delete_tunnel(self.cf_tunnel_id)
+
+        self.delete()
 
     def touch(self):
         """Record a check-in. Called by the agent API, not by the dashboard."""

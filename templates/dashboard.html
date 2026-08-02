@@ -133,11 +133,35 @@
                               {% csrf_token %}
                               <button type="submit" class="btn btn-small">اعتماد</button>
                             </form>
+                          {% elif agent.obj.status == "stopped" %}
+                            <form method="post" action="{% url 'enrollment_approve' shop.tenant.slug agent.obj.pk %}">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-small">تشغيل</button>
+                            </form>
+                          {% endif %}
+                          {% if agent.can_stop %}
+                            <form method="post" action="{% url 'enrollment_stop' shop.tenant.slug agent.obj.pk %}">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-small btn-ghost">إيقاف</button>
+                            </form>
                           {% endif %}
                           {% if agent.obj.status != "revoked" %}
                             <form method="post" action="{% url 'enrollment_revoke' shop.tenant.slug agent.obj.pk %}">
                               {% csrf_token %}
                               <button type="submit" class="btn btn-small btn-ghost">إلغاء</button>
+                            </form>
+                          {% endif %}
+                          {% comment %}
+                            Only offered once the agent is stopped or revoked,
+                            mirroring teardown_and_delete()'s own guard. This
+                            also tears down the shop's Cloudflare tunnel, and
+                            deletes nothing at all if that part fails.
+                          {% endcomment %}
+                          {% if agent.can_delete %}
+                            <form method="post" action="{% url 'enrollment_delete' shop.tenant.slug agent.obj.pk %}"
+                                  onsubmit="return confirm('سيُحذف هذا العميل ونفقه نهائياً. هل أنت متأكد؟');">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-small btn-ghost">حذف</button>
                             </form>
                           {% endif %}
                           {% comment %}

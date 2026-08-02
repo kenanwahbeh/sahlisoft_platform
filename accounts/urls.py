@@ -26,6 +26,18 @@ urlpatterns = [
         name="enrollment_revoke",
     ),
     path(
+        "shops/<slug:slug>/agents/<int:pk>/stop/",
+        views.enrollment_stop,
+        name="enrollment_stop",
+    ),
+    # Deleting also tears down the shop's Cloudflare tunnel, and refuses if it
+    # cannot -- see AgentEnrollment.teardown_and_delete.
+    path(
+        "shops/<slug:slug>/agents/<int:pk>/delete/",
+        views.enrollment_delete,
+        name="enrollment_delete",
+    ),
+    path(
         "shops/<slug:slug>/agents/<int:pk>/config/",
         views.enrollment_config,
         name="enrollment_config",

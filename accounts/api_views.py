@@ -12,28 +12,15 @@ Route -> contract (exact, agreed with the separate Windows-agent codebase):
     POST /api/agent/tunnel/      fetch a Cloudflare Tunnel connector token
 """
 
-import json
-import urllib.error
-import urllib.request
-from os import environ
-
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
+from . import tunnel_worker
 from .agent_auth import authenticate_agent, parse_json_body
 from .models import AgentCommand, AgentEnrollment
 from .views import tenant_host
-
-# The real Cloudflare API token (Tunnel:Edit) never touches this box. It lives
-# as a Worker secret at TUNNEL_WORKER_URL, which this box reaches with a
-# narrow, single-purpose shared secret (TUNNEL_WORKER_TOKEN) that can only ever
-# ask "make or reuse a tunnel for this shop" -- nothing account-wide. If the
-# VPS is ever compromised, the worst this credential yields is more tunnels;
-# it cannot touch DNS, zones, other Workers, or billing.
-TUNNEL_WORKER_URL = environ.get("TUNNEL_WORKER_URL", "")
-TUNNEL_WORKER_TOKEN = environ.get("TUNNEL_WORKER_TOKEN", "")
 
 
 def _str_field(body, name, max_length):
@@ -163,11 +150,11 @@ def agent_tunnel(request):
 
     Delegates the actual Cloudflare API call to a small Worker
     (tunnel-provisioner) that holds the powerful, account-scoped Cloudflare
-    token as its own secret -- this view only ever holds a narrow shared
-    secret good for nothing but "ask that Worker for a tunnel". Requires
-    TUNNEL_WORKER_URL and TUNNEL_WORKER_TOKEN in the environment; until they
-    are set, this answers 503 rather than guessing, so the contract is
-    stable and testable end to end the moment they show up.
+    token as its own secret -- this box only ever holds a narrow shared secret
+    good for nothing but "ask that Worker for a tunnel". See tunnel_worker.py,
+    which owns that call and is also what tears a tunnel down on delete. Until
+    its credentials are set this answers 503 rather than guessing, so the
+    contract is stable and testable end to end the moment they show up.
     """
     enrollment, error = authenticate_agent(request)
     if error:
@@ -178,48 +165,16 @@ def agent_tunnel(request):
             {"error": "enrollment is still pending approval"}, status=409
         )
 
-    if not TUNNEL_WORKER_URL or not TUNNEL_WORKER_TOKEN:
-        return JsonResponse(
-            {"error": "tunnel provisioning is not configured on the platform yet"},
-            status=503,
-        )
-
-    payload = {"tunnel_id": enrollment.cf_tunnel_id} if enrollment.cf_tunnel_id else {
-        "tenant_slug": enrollment.tenant.slug,
-        "enrollment_id": str(enrollment.pk),
-    }
     try:
-        data = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            TUNNEL_WORKER_URL,
-            data=data,
-            method="POST",
-            headers={
-                "Authorization": f"Bearer {TUNNEL_WORKER_TOKEN}",
-                "Content-Type": "application/json",
-                # Without an explicit UA, urllib sends "Python-urllib/x.y",
-                # which Cloudflare Bot Fight Mode blocks with a 1010 on any
-                # zone-hosted route -- including this platform's own Worker.
-                "User-Agent": "SahlisoftPlatform-tunnel-client/1.0",
-            },
+        result = tunnel_worker.ensure_tunnel(
+            tunnel_id=enrollment.cf_tunnel_id,
+            tenant_slug=enrollment.tenant.slug,
+            enrollment_id=enrollment.pk,
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")[:300]
-        return JsonResponse(
-            {"error": f"tunnel provisioning failed ({exc.code}): {detail}"},
-            status=502,
-        )
-    except (urllib.error.URLError, ValueError) as exc:
-        return JsonResponse(
-            {"error": f"tunnel provisioning failed: {exc}"}, status=502
-        )
-
-    if not result.get("tunnel_token"):
-        return JsonResponse(
-            {"error": "tunnel worker returned no token"}, status=502
-        )
+    except tunnel_worker.NotConfigured as exc:
+        return JsonResponse({"error": str(exc)}, status=503)
+    except tunnel_worker.WorkerError as exc:
+        return JsonResponse({"error": f"tunnel provisioning failed: {exc}"}, status=502)
 
     if not enrollment.cf_tunnel_id and result.get("tunnel_id"):
         enrollment.cf_tunnel_id = result["tunnel_id"]

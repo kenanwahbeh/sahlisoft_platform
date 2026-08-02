@@ -6,11 +6,12 @@ every one of those has to be restated here or the admin checks fail with
 admin.E108/E116 before a single page renders.
 """
 
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 from django.db.models import Count
 from django.utils.translation import gettext_lazy as _
 
+from . import tunnel_worker
 from .models import AgentCommand, AgentEnrollment, Membership, Tenant, User
 
 
@@ -104,8 +105,55 @@ class AgentEnrollmentAdmin(admin.ModelAdmin):
     readonly_fields = ["token_prefix", "created_at", "approved_at", "last_seen_at", "created_by"]
     ordering = ["-created_at"]
 
+    actions = ["stop_enrollments", "delete_enrollments"]
+
     def has_add_permission(self, request):
         return False
+
+    def has_delete_permission(self, request, obj=None):
+        """Off, so the only way out is the action below.
+
+        Django's stock delete drops the row and leaves the shop's Cloudflare
+        tunnel standing in the account with nothing left pointing at it. It was
+        reachable here by omission until now.
+        """
+        return False
+
+    @admin.action(description=_("Stop selected agents"))
+    def stop_enrollments(self, request, queryset):
+        stopped = 0
+        for enrollment in queryset:
+            if enrollment.status not in AgentEnrollment.DELETABLE_STATUSES:
+                enrollment.stop()
+                stopped += 1
+        self.message_user(request, _("Stopped %(count)d agent(s).") % {"count": stopped})
+
+    @admin.action(description=_("Delete selected agents (and their tunnels)"))
+    def delete_enrollments(self, request, queryset):
+        """Same guarded path the dashboard uses -- never a second route.
+
+        Reports per-agent so a partial failure is legible: one shop's tunnel
+        refusing to drop must not look like the whole batch failed, nor like it
+        succeeded.
+        """
+        deleted, failed = 0, []
+        for enrollment in queryset:
+            name = enrollment.label or enrollment.masked_token
+            try:
+                enrollment.teardown_and_delete()
+            except ValueError:
+                failed.append(f"{name}: not stopped")
+            except tunnel_worker.NotConfigured:
+                failed.append(f"{name}: tunnel provisioning not configured")
+            except tunnel_worker.WorkerError as exc:
+                failed.append(f"{name}: {exc}")
+            else:
+                deleted += 1
+
+        if deleted:
+            self.message_user(request, _("Deleted %(count)d agent(s).") % {"count": deleted})
+        for problem in failed:
+            self.message_user(request, problem, level=messages.ERROR)
 
 
 @admin.register(AgentCommand)

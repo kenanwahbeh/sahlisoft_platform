@@ -19,6 +19,7 @@ from django.shortcuts import redirect, render
 from django.utils.text import slugify
 from django.views.decorators.http import require_POST
 
+from . import tunnel_worker
 from .forms import ShopCreateForm
 from .models import AgentEnrollment, Membership, Tenant
 from .signals import unique_slug
@@ -36,6 +37,7 @@ ROLE_LABELS_AR = {
 STATUS_LABELS_AR = {
     AgentEnrollment.Status.PENDING: "بانتظار الموافقة",
     AgentEnrollment.Status.ACTIVE: "مفعّل",
+    AgentEnrollment.Status.STOPPED: "متوقف",
     AgentEnrollment.Status.REVOKED: "ملغى",
 }
 
@@ -131,6 +133,12 @@ def _shop_rows(user):
                         "status_label": STATUS_LABELS_AR.get(
                             enrollment.status, enrollment.get_status_display()
                         ),
+                        # Mirrors teardown_and_delete()'s own guard, so the
+                        # button is absent rather than merely rejected.
+                        "can_delete": enrollment.status
+                        in AgentEnrollment.DELETABLE_STATUSES,
+                        "can_stop": enrollment.status
+                        not in AgentEnrollment.DELETABLE_STATUSES,
                     }
                     for enrollment in agents_by_tenant.get(tenant.id, [])
                 ],
@@ -269,19 +277,30 @@ def enrollment_create(request, slug):
 @login_required
 @require_POST
 def enrollment_approve(request, slug, pk):
-    """The human half of pairing: a token that nobody vouched for stays inert."""
+    """The human half of pairing: a token that nobody vouched for stays inert.
+
+    Also the way back from ``stopped`` -- that state exists precisely to be
+    reversible, and the agent resumes on its own once this lands. ``revoked``
+    is deliberately not reachable from here: undoing a burned credential by
+    clicking "start" is exactly what revoking is supposed to prevent.
+    """
     tenant = _managed_tenant(request.user, slug)
     enrollment = _enrollment(tenant, pk)
 
-    if enrollment.status == AgentEnrollment.Status.PENDING:
+    resuming = enrollment.status == AgentEnrollment.Status.STOPPED
+    if enrollment.status in (AgentEnrollment.Status.PENDING, AgentEnrollment.Status.STOPPED):
         enrollment.approve()
+        name = enrollment.label or enrollment.masked_token
         messages.success(
             request,
-            f"تم اعتماد العميل «{enrollment.label or enrollment.masked_token}»، "
-            "ويمكنه الآن إرسال بيانات المتجر.",
+            f"تم تشغيل العميل «{name}» من جديد."
+            if resuming
+            else f"تم اعتماد العميل «{name}»، ويمكنه الآن إرسال بيانات المتجر.",
         )
+    elif enrollment.status == AgentEnrollment.Status.REVOKED:
+        messages.info(request, "هذا العميل ملغى نهائياً؛ أنشئ عميلاً جديداً بدلاً منه.")
     else:
-        messages.info(request, "هذا العميل ليس بانتظار الموافقة.")
+        messages.info(request, "هذا العميل مفعّل أصلاً.")
     return redirect("dashboard")
 
 
@@ -300,6 +319,73 @@ def enrollment_revoke(request, slug, pk):
         )
     else:
         messages.info(request, "هذا العميل ملغى أصلاً.")
+    return redirect("dashboard")
+
+
+@login_required
+@require_POST
+def enrollment_stop(request, slug, pk):
+    """Pause an agent without burning its credential.
+
+    Unlike revoke, this is meant to be undone: the agent keeps checking in and
+    resumes on its own the moment it is approved again.
+    """
+    tenant = _managed_tenant(request.user, slug)
+    enrollment = _enrollment(tenant, pk)
+
+    if enrollment.status == AgentEnrollment.Status.STOPPED:
+        messages.info(request, "هذا العميل متوقف أصلاً.")
+    elif enrollment.status == AgentEnrollment.Status.REVOKED:
+        messages.info(request, "هذا العميل ملغى، ولا حاجة لإيقافه.")
+    else:
+        enrollment.stop()
+        messages.success(
+            request,
+            f"تم إيقاف العميل «{enrollment.label or enrollment.masked_token}». "
+            "يمكن حذفه الآن، أو اعتماده من جديد لاستئناف العمل.",
+        )
+    return redirect("dashboard")
+
+
+@login_required
+@require_POST
+def enrollment_delete(request, slug, pk):
+    """Delete a stopped agent, and its Cloudflare tunnel with it.
+
+    Refusing on a retryable failure is the point: the alternative is dropping
+    the row while the tunnel lives on in the Cloudflare account with nothing
+    left pointing at it.
+    """
+    tenant = _managed_tenant(request.user, slug)
+    enrollment = _enrollment(tenant, pk)
+    name = enrollment.label or enrollment.masked_token
+
+    try:
+        enrollment.teardown_and_delete()
+    except ValueError:
+        messages.error(request, "أوقف العميل أولاً قبل حذفه.")
+    except tunnel_worker.NotConfigured:
+        messages.error(
+            request,
+            "تعذّر حذف العميل: إعدادات أنفاق Cloudflare غير مكتملة على المنصة. "
+            "لم يُحذف شيء.",
+        )
+    except tunnel_worker.WorkerError as exc:
+        if exc.retryable:
+            messages.error(
+                request,
+                "النفق لا يزال متصلاً ولم يُحذف بعد. لم يُحذف العميل — "
+                "أعد المحاولة بعد قليل.",
+            )
+        else:
+            messages.error(
+                request,
+                f"تعذّر حذف نفق Cloudflare، ولذلك لم يُحذف العميل «{name}». "
+                "راجع سجلّات المنصة.",
+            )
+        logger.warning("tunnel teardown failed for enrollment %s: %s", enrollment.pk, exc)
+    else:
+        messages.success(request, f"تم حذف العميل «{name}» ونفقه.")
     return redirect("dashboard")
 
 
