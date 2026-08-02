@@ -17,10 +17,14 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from . import tunnel_worker
+from . import throttle, tunnel_worker
 from .agent_auth import authenticate_agent, parse_json_body
-from .models import AgentCommand, AgentEnrollment
-from .views import tenant_host
+from .models import AgentActivationCode, AgentCommand, AgentEnrollment
+from .views import platform_base_url, tenant_host
+
+#: Activation is throttled per source address; nothing else here is, because
+#: nothing else here is reachable without a credential we issued.
+THROTTLE_SCOPE = "agent-activate"
 
 
 def _str_field(body, name, max_length):
@@ -141,6 +145,75 @@ def agent_heartbeat(request):
         commands = [c.as_payload() for c in queued]
 
     return JsonResponse({"status": enrollment.status, "commands": commands})
+
+
+@csrf_exempt
+@require_POST
+def agent_activate(request):
+    """Trade a one-shot activation code for this enrollment's real token.
+
+    The only agent route with no ``Authorization`` header, because the caller
+    is a machine that has just been installed and has nothing to authenticate
+    with yet -- the code in its pairing file is the credential, and this is
+    where it stops being one. See accounts/models.py::AgentActivationCode for
+    why the download carries a coupon instead of the token itself.
+
+    Nothing about approval changes here. The enrollment stays ``pending`` until
+    a human clicks approve in the dashboard, exactly as it does for an owner
+    who set up the .env by hand: activation hands over a credential, not
+    permission to use it.
+    """
+    ip = throttle.client_ip(request)
+    if throttle.is_blocked(THROTTLE_SCOPE, ip):
+        return JsonResponse(
+            {"error": "too many failed activation attempts -- try again later"},
+            status=429,
+        )
+
+    body = parse_json_body(request)
+    if not isinstance(body, dict):
+        return JsonResponse({"error": "malformed JSON body"}, status=400)
+
+    raw = str(body.get("activation_code") or "").strip()
+    code = AgentActivationCode.resolve(raw)
+
+    # One message for "no such code", "expired" and "already used" alike. The
+    # agent cannot act differently on any of them -- every one of them means
+    # "download a fresh pairing file" -- and distinguishing them would confirm
+    # to a prober that a code once existed.
+    if code is None or not code.is_redeemable:
+        throttle.record_failure(THROTTLE_SCOPE, ip)
+        return JsonResponse(
+            {"error": "activation code is unknown, expired, or already used"},
+            status=403,
+        )
+
+    if code.enrollment.status == AgentEnrollment.Status.REVOKED:
+        throttle.record_failure(THROTTLE_SCOPE, ip)
+        return JsonResponse({"error": "enrollment has been revoked"}, status=403)
+
+    token = code.consume(ip=ip)
+    if token is None:
+        # Claimed by a concurrent request between resolve and consume.
+        throttle.record_failure(THROTTLE_SCOPE, ip)
+        return JsonResponse(
+            {"error": "activation code is unknown, expired, or already used"},
+            status=403,
+        )
+
+    throttle.clear(THROTTLE_SCOPE, ip)
+    enrollment = code.enrollment
+    return JsonResponse(
+        {
+            "platform_token": token,
+            "platform_url": platform_base_url(),
+            "agent_id": enrollment.pk,
+            "agent_label": enrollment.label,
+            "tenant_slug": enrollment.tenant.slug,
+            "tenant_host": tenant_host(enrollment.tenant),
+            "status": enrollment.status,
+        }
+    )
 
 
 @csrf_exempt

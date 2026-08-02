@@ -91,6 +91,21 @@ DATABASES = {
 }
 
 
+# A file-backed cache, not the default in-process one, because the only thing
+# that uses it -- the activation endpoint's throttle (accounts/throttle.py) --
+# is worthless unless every gunicorn worker counts against the same tally. Two
+# workers each holding their own LocMemCache would silently double whatever
+# limit the code says it enforces. Sqlite-on-one-box already assumes a single
+# machine, so a shared directory is enough; a real Redis would be the answer
+# only once this runs on more than one host.
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.filebased.FileBasedCache",
+        "LOCATION": os.environ.get("DJANGO_CACHE_DIR", str(BASE_DIR / "cache")),
+    }
+}
+
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},

@@ -7,6 +7,7 @@ only ever see the tenants they hold a Membership for.
 
 import hashlib
 import secrets
+from datetime import timedelta
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models
@@ -208,6 +209,28 @@ class AgentEnrollment(models.Model):
         )
         return enrollment, raw
 
+    def rotate_token(self) -> str:
+        """Mint a fresh token for an enrollment that already exists.
+
+        :meth:`issue` cannot serve the activation flow: it *creates* a row, and
+        by activation time the row is already there -- the owner made it in the
+        dashboard and downloaded a pairing file naming it. So the token is
+        replaced in place, which is also what makes an activation code safe to
+        ship inside an installer: the real credential does not exist anywhere
+        until the machine that will use it asks for one.
+
+        Rotating invalidates whatever token the enrollment had before, which is
+        the point on a reinstall. It deliberately does *not* clear ``hostname``:
+        the one-machine binding belongs to the enrollment, not to the token, and
+        letting a re-download quietly unbind it would turn the anti-reuse guard
+        in agent_register into a formality.
+        """
+        raw = secrets.token_urlsafe(32)
+        self.token_prefix = raw[: self.TOKEN_PREFIX_LENGTH]
+        self.token_hash = self.hash_token(raw)
+        self.save(update_fields=["token_prefix", "token_hash"])
+        return raw
+
     @classmethod
     def resolve(cls, raw):
         """The enrollment a raw token belongs to, or None. For the agent API.
@@ -279,6 +302,139 @@ class AgentEnrollment(models.Model):
         """Record a check-in. Called by the agent API, not by the dashboard."""
         self.last_seen_at = timezone.now()
         self.save(update_fields=["last_seen_at"])
+
+
+class AgentActivationCode(models.Model):
+    """A short-lived, single-use coupon that a shop PC trades for a real token.
+
+    It exists so the artifact the owner downloads -- today a pairing file,
+    tomorrow the bytes appended to a signed installer -- is not itself the
+    credential. A downloaded installer sits in a Downloads folder, gets copied
+    to a USB stick, gets forwarded on WhatsApp; a long-lived bearer token
+    embedded in it would be all of those things too, indefinitely. A code that
+    dies in thirty minutes and works exactly once is not worth stealing, and
+    the token it is exchanged for is minted only when the machine that will
+    actually use it asks (see :meth:`AgentEnrollment.rotate_token`).
+
+    Same hash-only storage as the token itself: the plaintext is returned once,
+    by :meth:`issue`, and never stored. That is also why redemption looks the
+    code up by digest rather than scanning rows -- one indexed lookup, and a
+    UNIQUE index that turns a collision into a database error.
+
+    Codes are not cleaned up on redemption. A consumed row is the record that a
+    particular download was used, and by whom, which is worth more than the
+    handful of bytes it costs.
+    """
+
+    #: Long enough that a saved download still works after the owner walks
+    #: away and comes back, short enough that a leaked installer is inert by
+    #: the time anyone finds it interesting.
+    LIFETIME = timedelta(minutes=30)
+
+    #: Same non-secret naming trick as AgentEnrollment.token_prefix.
+    CODE_PREFIX_LENGTH = 8
+
+    enrollment = models.ForeignKey(
+        AgentEnrollment, on_delete=models.CASCADE, related_name="activation_codes"
+    )
+    code_prefix = models.CharField(_("code prefix"), max_length=16, db_index=True)
+    code_hash = models.CharField(
+        _("code hash"), max_length=64, unique=True, editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(_("expires at"))
+    consumed_at = models.DateTimeField(_("consumed at"), null=True, blank=True)
+    #: Which machine redeemed it, for the same reason agent_register records a
+    #: hostname: so an unexpected redemption is visible after the fact.
+    consumed_from = models.GenericIPAddressField(
+        _("consumed from"), null=True, blank=True
+    )
+
+    class Meta:
+        verbose_name = _("agent activation code")
+        verbose_name_plural = _("agent activation codes")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.code_prefix}… -> {self.enrollment_id}"
+
+    @staticmethod
+    def hash_code(raw: str) -> str:
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def issue(cls, enrollment):
+        """Mint a code for this enrollment. Returns ``(code, plaintext)``.
+
+        32 bytes from ``secrets`` -- the same entropy as the long-lived token,
+        deliberately, since this one travels inside a downloadable file and
+        over the wire on first run rather than being shown once to an operator.
+        Nothing here is meant to be typed by a human, so there is no reason to
+        shorten it.
+
+        Any codes still outstanding for this enrollment are burned first: two
+        live pairing files for one agent means the second download silently
+        leaves the first working, and "I downloaded it again to be safe" should
+        make the older copy useless, not keep both.
+        """
+        cls.objects.filter(enrollment=enrollment, consumed_at__isnull=True).update(
+            consumed_at=timezone.now()
+        )
+        raw = secrets.token_urlsafe(32)
+        code = cls.objects.create(
+            enrollment=enrollment,
+            code_prefix=raw[: cls.CODE_PREFIX_LENGTH],
+            code_hash=cls.hash_code(raw),
+            expires_at=timezone.now() + cls.LIFETIME,
+        )
+        return code, raw
+
+    @classmethod
+    def resolve(cls, raw):
+        """The code row a plaintext belongs to, or None.
+
+        Indifferent to expiry and redemption, exactly like
+        ``AgentEnrollment.resolve`` is indifferent to status: the caller needs
+        the row in hand to answer "expired" rather than "unknown", which is the
+        difference between an owner re-downloading and an owner filing a bug.
+        """
+        if not raw:
+            return None
+        return (
+            cls.objects.select_related("enrollment", "enrollment__tenant")
+            .filter(code_hash=cls.hash_code(raw))
+            .first()
+        )
+
+    @property
+    def is_redeemable(self) -> bool:
+        return self.consumed_at is None and timezone.now() < self.expires_at
+
+    def consume(self, ip=None):
+        """Claim the code, then mint a token for it. None if already claimed.
+
+        The claim is a conditional UPDATE rather than a check followed by a
+        save, because "single use" has to survive two machines redeeming the
+        same leaked file at the same moment. Both would pass an
+        :attr:`is_redeemable` check; only one wins a
+        ``filter(consumed_at__isnull=True).update(...)``, which SQLite executes
+        as one statement.
+
+        Claiming before minting is the deliberate order. If minting then failed
+        the code would be spent with nothing handed back -- recoverable, since
+        the owner just downloads a new pairing file. Minting first and claiming
+        after would instead let both racers mint, and the first one's token
+        would be silently overwritten by the second: an agent holding a
+        credential that stopped working for no visible reason. A dead code
+        beats a dead token.
+        """
+        claimed = type(self).objects.filter(pk=self.pk, consumed_at__isnull=True).update(
+            consumed_at=timezone.now(), consumed_from=ip or None
+        )
+        if not claimed:
+            return None
+        self.refresh_from_db(fields=["consumed_at", "consumed_from"])
+        return self.enrollment.rotate_token()
 
 
 class AgentCommand(models.Model):

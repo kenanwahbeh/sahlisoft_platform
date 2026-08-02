@@ -12,7 +12,14 @@ from django.db.models import Count
 from django.utils.translation import gettext_lazy as _
 
 from . import tunnel_worker
-from .models import AgentCommand, AgentEnrollment, Membership, Tenant, User
+from .models import (
+    AgentActivationCode,
+    AgentCommand,
+    AgentEnrollment,
+    Membership,
+    Tenant,
+    User,
+)
 
 
 class MembershipInline(admin.TabularInline):
@@ -154,6 +161,29 @@ class AgentEnrollmentAdmin(admin.ModelAdmin):
             self.message_user(request, _("Deleted %(count)d agent(s).") % {"count": deleted})
         for problem in failed:
             self.message_user(request, problem, level=messages.ERROR)
+
+
+@admin.register(AgentActivationCode)
+class AgentActivationCodeAdmin(admin.ModelAdmin):
+    """A read-only audit trail of who paired which machine, and when.
+
+    Everything here is either a digest or a timestamp, so there is nothing to
+    edit and nothing worth showing beyond the prefix. Minting is the
+    dashboard's job (enrollment_installer) and redeeming is the agent's
+    (agent_activate); an admin-created code would belong to no download.
+    """
+
+    list_display = ["code_prefix", "enrollment", "created_at", "expires_at", "consumed_at", "consumed_from"]
+    list_filter = ["enrollment__tenant"]
+    search_fields = ["code_prefix", "enrollment__label", "enrollment__tenant__slug"]
+    list_select_related = ["enrollment", "enrollment__tenant"]
+    ordering = ["-created_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(AgentCommand)

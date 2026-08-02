@@ -14,8 +14,9 @@
       <h2>رمز الربط الجديد — انسخه الآن</h2>
       <p class="muted">
         هذا الرمز خاص بالمتجر <strong>{{ issued.tenant.name }}</strong>،
-        وهو يظهر <strong>مرة واحدة فقط</strong>. المنصة لا تحتفظ بنسخة منه،
-        فإن أغلقت هذه الصفحة قبل نسخه فلن تتمكن من استرجاعه، وسيلزمك إنشاء رمز جديد.
+        وهو يظهر <strong>مرة واحدة فقط</strong> — المنصة لا تحتفظ بنسخة منه.
+        لست مضطراً لنسخه: إن أغلقت هذه الصفحة فنزّل «ملف الربط» من جدول الأجهزة
+        في أي وقت، وهو يغنيك عن الرمز تماماً.
       </p>
       <pre class="token-box" dir="ltr">{{ issued.token }}</pre>
       <div class="actions">
@@ -165,13 +166,18 @@
                             </form>
                           {% endif %}
                           {% comment %}
-                            No token to send with it, so this lands on the
-                            page that explains why and offers a replacement.
+                            Deliberately not enrollment_config: from here there
+                            is no plaintext token to POST, and that view can
+                            only ever answer with the page explaining so. This
+                            one mints a fresh activation code per download, so
+                            it works now and every time after.
                           {% endcomment %}
-                          <form method="post" action="{% url 'enrollment_config' shop.tenant.slug agent.obj.pk %}">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-small btn-ghost">ملف الإعداد</button>
-                          </form>
+                          {% if agent.can_pair %}
+                            <form method="post" action="{% url 'enrollment_installer' shop.tenant.slug agent.obj.pk %}">
+                              {% csrf_token %}
+                              <button type="submit" class="btn btn-small btn-ghost">ملف الربط</button>
+                            </form>
+                          {% endif %}
                         </div>
                       </td>
                     {% endif %}

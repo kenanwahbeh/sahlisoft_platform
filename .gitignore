@@ -17,3 +17,6 @@ staticfiles/
 # Editor and tooling backups
 *.bak
 *.bak-*
+
+# Django FileBasedCache (settings.py CACHES) — runtime throttle counters
+cache/

@@ -21,7 +21,7 @@ from django.views.decorators.http import require_POST
 
 from . import tunnel_worker
 from .forms import ShopCreateForm
-from .models import AgentEnrollment, Membership, Tenant
+from .models import AgentActivationCode, AgentEnrollment, Membership, Tenant
 from .signals import unique_slug
 
 logger = logging.getLogger(__name__)
@@ -139,6 +139,11 @@ def _shop_rows(user):
                         in AgentEnrollment.DELETABLE_STATUSES,
                         "can_stop": enrollment.status
                         not in AgentEnrollment.DELETABLE_STATUSES,
+                        # A revoked credential is burned; handing out a pairing
+                        # file for it would only mint a token that authenticates
+                        # into a 403.
+                        "can_pair": enrollment.status
+                        != AgentEnrollment.Status.REVOKED,
                     }
                     for enrollment in agents_by_tenant.get(tenant.id, [])
                 ],
@@ -394,7 +399,7 @@ def enrollment_delete(request, slug, pk):
 _UNSAFE_IN_FILENAME = re.compile(r"[^A-Za-z0-9]+")
 
 
-def config_filename(tenant, enrollment) -> str:
+def config_filename(tenant, enrollment, stem="sahlisoft-agent") -> str:
     """A name that can only ever belong to this one enrollment.
 
     Every enrollment for a shop used to produce a byte-identical file name, so
@@ -402,8 +407,12 @@ def config_filename(tenant, enrollment) -> str:
     two files that look the same, only one of which works. Folding the
     enrollment id (and its label, when it survives the trip to ASCII) into the
     name makes the pair distinguishable at a glance in the file manager.
+
+    ``stem`` exists for the same reason one step further out: the pairing file
+    and the hand-configured .env are both .env files for the same enrollment,
+    so they need to be told apart in Downloads too.
     """
-    parts = ["sahlisoft-agent", _UNSAFE_IN_FILENAME.sub("-", tenant.slug).strip("-")]
+    parts = [stem, _UNSAFE_IN_FILENAME.sub("-", tenant.slug).strip("-")]
     parts.append(str(enrollment.pk))
     label = _UNSAFE_IN_FILENAME.sub("-", enrollment.label or "").strip("-").lower()
     if label:
@@ -430,6 +439,15 @@ def render_agent_config(tenant, enrollment, token) -> str:
     enrollment's digest -- a file with the secret line blank looks exactly like
     a working one and is worse than no file at all, so that case never gets
     this far (see :func:`enrollment_config`).
+
+    ``PLATFORM_URL`` and ``PLATFORM_TOKEN`` are the names the agent's worker.py
+    actually reads (its .env.example is the contract). They were once written
+    here as ``PLATFORM_BASE_URL`` and ``AGENT_TOKEN``, which the agent ignores
+    -- and since it treats a missing token as "platform check-in not wanted"
+    and exits that thread silently, the result was a downloaded file that
+    looked complete and produced an agent that simply never called home. Keep
+    these two names in step with .env.example; the rest of the file is
+    informational and nothing parses it.
     """
     host = tenant_host(tenant)
 
@@ -445,7 +463,7 @@ def render_agent_config(tenant, enrollment, token) -> str:
         "# تحذير: هذا الملف يحتوي على رمز سري. لا تشاركه ولا ترسله عبر البريد أو واتساب.",
         "",
         "# عنوان المنصة",
-        f"PLATFORM_BASE_URL={platform_base_url()}",
+        f"PLATFORM_URL={platform_base_url()}",
         "",
         "# معرّف المتجر ونطاقه الفرعي على المنصة",
         f"TENANT_SLUG={tenant.slug}",
@@ -457,7 +475,7 @@ def render_agent_config(tenant, enrollment, token) -> str:
         f"AGENT_ID={enrollment.pk}",
         "",
         "# رمز الربط: يظهر مرة واحدة فقط عند الإنشاء ولا يمكن استرجاعه لاحقاً.",
-        f"AGENT_TOKEN={token}",
+        f"PLATFORM_TOKEN={token}",
         "",
         "# بعد صدور برنامج الوكيل وتشغيله بهذا الملف يسجّل نفسه لدى المنصة",
         "# بحالة «بانتظار الموافقة»، ولن يبدأ بإرسال أي بيانات قبل أن تعتمده يدوياً",
@@ -510,6 +528,90 @@ def enrollment_config(request, slug, pk):
     )
     response["Content-Disposition"] = (
         f'attachment; filename="{config_filename(tenant, enrollment)}"'
+    )
+    return response
+
+
+def render_pairing_file(tenant, enrollment, code) -> str:
+    """The same .env shape, carrying a coupon where the token would be.
+
+    Deliberately the agent's own .env format rather than a new one: the agent
+    already loads it, the installer will already write it, and a bespoke
+    pairing format would be a third thing to keep in step for no gain. The
+    agent trades ``PLATFORM_ACTIVATION_CODE`` for a real ``PLATFORM_TOKEN`` on
+    first run and rewrites this file in place.
+    """
+    host = tenant_host(tenant)
+
+    lines = [
+        "# ملف ربط متجرك بمنصة سهل سوفت",
+        "#",
+        "# ضع هذا الملف بجانب برنامج الوكيل باسم .env ثم شغّل البرنامج.",
+        "# عند أول تشغيل يستبدل البرنامج رمز التفعيل أدناه برمز الربط الدائم",
+        "# ويحدّث الملف تلقائياً — لا حاجة لأي خطوة يدوية منك.",
+        "#",
+        "# رمز التفعيل صالح لمدة ٣٠ دقيقة ولمرة واحدة فقط. إن انتهت صلاحيته",
+        "# فنزّل الملف من جديد من لوحة التحكم؛ لا يوجد ما يُفقد.",
+        "",
+        "# عنوان المنصة",
+        f"PLATFORM_URL={platform_base_url()}",
+        "",
+        "# معرّف المتجر ونطاقه الفرعي على المنصة",
+        f"TENANT_SLUG={tenant.slug}",
+        f"TENANT_HOST={host}",
+        f"TENANT_URL=https://{host}",
+        "",
+        "# اسم الجهاز ورقمه كما يظهران في لوحة التحكم",
+        f"AGENT_LABEL={env_value(enrollment.label)}",
+        f"AGENT_ID={enrollment.pk}",
+        "",
+        "# رمز التفعيل — مؤقت، ويُستبدل تلقائياً عند أول تشغيل",
+        f"PLATFORM_ACTIVATION_CODE={code}",
+        "",
+        "# بعد التفعيل يسجّل البرنامج نفسه بحالة «بانتظار الموافقة»، ولن يرسل",
+        "# أي بيانات قبل أن تعتمده يدوياً من لوحة التحكم: الرمز وحده لا يكفي،",
+        "# والموافقة البشرية هي العامل الثاني للربط.",
+        "",
+    ]
+    return "\r\n".join(lines)
+
+
+@login_required
+@require_POST
+def enrollment_installer(request, slug, pk):
+    """Download a pairing file for an agent, at any time, as often as needed.
+
+    A sibling of :func:`enrollment_config`, not a replacement -- that one hands
+    over the long-lived token itself and therefore only works in the single
+    response that minted it. This one mints a fresh short-lived activation code
+    per download, so an owner who closed the tab, or is setting the PC up next
+    week, is never told their only cure is a whole new enrollment.
+
+    That the artifact is a text file today and a signed installer later is a
+    packaging detail: the bytes handed over are the same either way, which is
+    the point of putting a coupon in them rather than a credential.
+
+    Downloading again burns the previous code (see AgentActivationCode.issue).
+    The enrollment's status is untouched -- a pairing file is not approval.
+    """
+    tenant = _managed_tenant(request.user, slug)
+    enrollment = _enrollment(tenant, pk)
+
+    if enrollment.status == AgentEnrollment.Status.REVOKED:
+        messages.error(
+            request,
+            "هذا العميل ملغى، ولا يمكن إصدار ملف ربط له. أنشئ عميلاً جديداً.",
+        )
+        return redirect("dashboard")
+
+    _, code = AgentActivationCode.issue(enrollment)
+
+    response = HttpResponse(
+        render_pairing_file(tenant, enrollment, code),
+        content_type="text/plain; charset=utf-8",
+    )
+    response["Content-Disposition"] = (
+        f'attachment; filename="{config_filename(tenant, enrollment, "sahlisoft-pairing")}"'
     )
     return response
 

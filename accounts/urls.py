@@ -42,4 +42,12 @@ urlpatterns = [
         views.enrollment_config,
         name="enrollment_config",
     ),
+    # The re-downloadable half of the pair above: this one carries a short-lived
+    # activation code instead of the token, so it does not depend on a plaintext
+    # the platform never kept.
+    path(
+        "shops/<slug:slug>/agents/<int:pk>/pairing/",
+        views.enrollment_installer,
+        name="enrollment_installer",
+    ),
 ]
