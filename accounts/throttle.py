@@ -31,16 +31,26 @@ WINDOW_SECONDS = 15 * 60
 
 
 def client_ip(request) -> str:
-    """The address to count against.
+    """The address to count against -- one the caller cannot choose.
 
-    X-Forwarded-For's *first* entry, because the request reaches Django through
-    Apache and a cloudflared connector -- REMOTE_ADDR is one of those, identical
-    for every shop in the country, and counting against it would let one
-    misbehaving client lock out all of them.
+    Deliberately *not* X-Forwarded-For. Nothing in front of Django rewrites it
+    (there is no mod_remoteip in the Apache config), so its leftmost entry is
+    whatever the client typed, and keying on it made this counter decorative:
+    ten failures then a new made-up address and the tally starts over. That was
+    measured against the live endpoint, not assumed.
+
+    CF-Connecting-IP cannot be spoofed the same way: Cloudflare overwrites it
+    at the edge on every request, and the only route to this app is through the
+    tunnel, so a request that reached us has been through that edge.
+
+    The fallback is REMOTE_ADDR -- the cloudflared connector, the same value for
+    everyone. That is a deliberately blunt bucket: it can only be reached by a
+    request that did not come through Cloudflare, which on this deployment means
+    a local one, and over-counting locally is the safer way to be wrong.
     """
-    forwarded = request.META.get("HTTP_X_FORWARDED_FOR", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()[:45]
+    edge = request.META.get("HTTP_CF_CONNECTING_IP", "").strip()
+    if edge:
+        return edge[:45]
     return request.META.get("REMOTE_ADDR", "") or "unknown"
 
 

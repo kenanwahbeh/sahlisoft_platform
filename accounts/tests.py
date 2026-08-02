@@ -9,12 +9,13 @@ look identical from the dashboard.
 
 import json
 from datetime import timedelta
+from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 
-from . import throttle
+from . import throttle, views
 from .models import AgentActivationCode, AgentEnrollment, Membership, Tenant, User
 
 HOST = "app.bytebalancetech.com"
@@ -197,7 +198,12 @@ class ActivationPreservesMachineBindingTests(ActivationTestCase):
         self.assertEqual(self.register(moved, "SHOP-PC").status_code, 200)
 
 
+@patch.object(views, "AGENT_RELEASED", True)
 class PairingDownloadTests(ActivationTestCase):
+    """AGENT_RELEASED is a module constant, not a setting, so it is patched
+    rather than overridden. It is False in production until the agent ships;
+    the gate itself is covered by PairingBeforeReleaseTests below."""
+
     def setUp(self):
         super().setUp()
         self.client.force_login(self.owner)
@@ -238,3 +244,61 @@ class PairingDownloadTests(ActivationTestCase):
         other = User.objects.create_user(email="other@example.com", password="pw")
         self.client.force_login(other)
         self.assertEqual(self.client.post(self.url, **REQUEST).status_code, 404)
+
+
+class PairingBeforeReleaseTests(ActivationTestCase):
+    def test_no_pairing_file_is_handed_out_before_the_agent_ships(self):
+        """A 30-minute code prepared before there is a program to run is dead
+        on arrival, so the download is closed until AGENT_RELEASED."""
+        self.assertFalse(views.AGENT_RELEASED)  # the production value
+        self.client.force_login(self.owner)
+        url = reverse(
+            "enrollment_installer", args=[self.tenant.slug, self.enrollment.pk]
+        )
+
+        response = self.client.post(url, **REQUEST)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(AgentActivationCode.objects.exists())
+
+
+class ThrottleKeyTests(TestCase):
+    """The counter is only worth having if the caller cannot pick its bucket.
+
+    Keying on X-Forwarded-For made it decorative: nothing in front of Django
+    rewrites that header, so ten failures and a new made-up value started the
+    tally over. Measured against the live endpoint before it was changed.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_a_client_supplied_forwarded_header_is_ignored(self):
+        request = self.factory.post(
+            "/api/agent/activate/",
+            HTTP_X_FORWARDED_FOR="203.0.113.9",
+            HTTP_CF_CONNECTING_IP="198.51.100.4",
+            REMOTE_ADDR="127.0.0.1",
+        )
+        self.assertEqual(throttle.client_ip(request), "198.51.100.4")
+
+    def test_two_spoofed_forwarded_headers_land_in_the_same_bucket(self):
+        keys = {
+            throttle.client_ip(
+                self.factory.post(
+                    "/api/agent/activate/",
+                    HTTP_X_FORWARDED_FOR=claimed,
+                    HTTP_CF_CONNECTING_IP="198.51.100.4",
+                )
+            )
+            for claimed in ("203.0.113.9", "203.0.113.10", "203.0.113.11")
+        }
+        self.assertEqual(len(keys), 1)
+
+    def test_without_the_edge_header_it_falls_back_to_the_peer(self):
+        request = self.factory.post(
+            "/api/agent/activate/",
+            HTTP_X_FORWARDED_FOR="203.0.113.9",
+            REMOTE_ADDR="127.0.0.1",
+        )
+        self.assertEqual(throttle.client_ip(request), "127.0.0.1")

@@ -14,9 +14,13 @@
       <h2>رمز الربط الجديد — انسخه الآن</h2>
       <p class="muted">
         هذا الرمز خاص بالمتجر <strong>{{ issued.tenant.name }}</strong>،
-        وهو يظهر <strong>مرة واحدة فقط</strong> — المنصة لا تحتفظ بنسخة منه.
-        لست مضطراً لنسخه: إن أغلقت هذه الصفحة فنزّل «ملف الربط» من جدول الأجهزة
-        في أي وقت، وهو يغنيك عن الرمز تماماً.
+        وهو يظهر <strong>مرة واحدة فقط</strong>. المنصة لا تحتفظ بنسخة منه،
+        {% if agent_released %}
+          لكن إن أغلقت هذه الصفحة فلست مضطراً لإنشاء رمز جديد: نزّل «ملف الربط»
+          من جدول الأجهزة في أي وقت، وهو يغنيك عن الرمز تماماً.
+        {% else %}
+          فإن أغلقت هذه الصفحة قبل نسخه فلن تتمكن من استرجاعه، وسيلزمك إنشاء رمز جديد.
+        {% endif %}
       </p>
       <pre class="token-box" dir="ltr">{{ issued.token }}</pre>
       <div class="actions">
@@ -172,7 +176,7 @@
                             one mints a fresh activation code per download, so
                             it works now and every time after.
                           {% endcomment %}
-                          {% if agent.can_pair %}
+                          {% if agent.can_pair and agent_released %}
                             <form method="post" action="{% url 'enrollment_installer' shop.tenant.slug agent.obj.pk %}">
                               {% csrf_token %}
                               <button type="submit" class="btn btn-small btn-ghost">ملف الربط</button>

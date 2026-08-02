@@ -593,9 +593,25 @@ def enrollment_installer(request, slug, pk):
 
     Downloading again burns the previous code (see AgentActivationCode.issue).
     The enrollment's status is untouched -- a pairing file is not approval.
+
+    Gated on AGENT_RELEASED, unlike enrollment_config next door, and the
+    difference is the code's lifetime rather than a policy call: a token is
+    long-lived, so preparing one before the agent ships is genuinely useful
+    (that is what "تجهيز رمز ربط مسبقاً" offers). A thirty-minute code prepared
+    today is dead long before there is a program to feed it to, so offering the
+    download now would only hand out files that cannot work.
     """
     tenant = _managed_tenant(request.user, slug)
     enrollment = _enrollment(tenant, pk)
+
+    if not AGENT_RELEASED:
+        messages.info(
+            request,
+            "برنامج الوكيل لم يصدر بعد. رمز الربط في ملف الربط صالح ٣٠ دقيقة فقط، "
+            "فلا فائدة من تنزيله قبل صدور البرنامج — يمكنك الآن تجهيز رمز الربط "
+            "الدائم من زر «ملف الإعداد» والاحتفاظ به.",
+        )
+        return redirect("dashboard")
 
     if enrollment.status == AgentEnrollment.Status.REVOKED:
         messages.error(
